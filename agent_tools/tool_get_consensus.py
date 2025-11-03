@@ -1,348 +1,329 @@
 """
-A股共识数据查询MCP工具
-提供北向资金、融资融券、券商评级、行业热度、技术指标等查询功能
+共识数据查询MCP工具
+
+提供5个MCP工具函数供Agent调用,封装共识数据获取功能:
+1. get_northbound_flow - 北向资金流向
+2. get_margin_trading - 融资融券数据
+3. get_analyst_ratings - 券商评级
+4. get_industry_heat - 行业热度
+5. get_all_consensus - 获取全部共识数据
+
+作者: AI-Trader Team
+日期: 2024
 """
 
-from fastmcp import FastMCP
+from typing import Dict, Any, Optional
 import sys
 import os
-import json
-from pathlib import Path
-from typing import Dict, Any, Optional
-from datetime import datetime, timedelta
 
 # 添加项目根目录到路径
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, project_root)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tools.general_tools import get_config_value
+# 导入共识数据获取模块
+try:
+    from data.get_consensus_data import ConsensusDataFetcher
+except ImportError:
+    ConsensusDataFetcher = None
+    print("Warning: ConsensusDataFetcher not available")
 
-mcp = FastMCP("ConsensusTools")
 
-def _load_consensus_data(symbol: str, date: str) -> Optional[Dict[str, Any]]:
-    """从consensus_data.jsonl加载指定股票和日期的共识数据
-    
-    Args:
-        symbol: 股票代码
-        date: 日期 'YYYY-MM-DD'
-        
-    Returns:
-        共识数据字典或None
+# TODO: 根据实际MCP框架调整装饰器
+# from mcp import tool
+# 当前使用模拟装饰器
+def mcp_tool():
+    """MCP工具装饰器(模拟)"""
+    def decorator(func):
+        func._is_mcp_tool = True
+        return func
+    return decorator
+
+
+@mcp_tool()
+def get_northbound_flow(symbol: str, date: str, tushare_token: Optional[str] = None) -> Dict[str, Any]:
     """
-    data_file = Path(project_root) / "data" / "consensus_data.jsonl"
-    
-    if not data_file.exists():
-        return None
-    
-    with open(data_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            if not line.strip():
-                continue
-            record = json.loads(line)
-            if record.get('symbol') == symbol and record.get('date') == date:
-                return record
-    
-    return None
-
-
-@mcp.tool()
-def get_northbound_flow(symbol: str, date: str) -> Dict[str, Any]:
-    """获取北向资金流向
-    
-    查询指定股票在指定日期的北向资金（沪股通+深股通）流入流出情况。
-    北向资金是外资通过沪深港通买卖A股的资金，被视为"聪明钱"的重要指标。
+    获取北向资金流向数据(沪深股通外资数据)
     
     Args:
-        symbol: 股票代码，如 '600519.SH'
-        date: 查询日期，格式 'YYYY-MM-DD'
+        symbol: 股票代码,如"600000"(不含后缀)
+        date: 查询日期,格式"YYYY-MM-DD",如"2024-01-15"
+        tushare_token: Tushare Pro API Token(可选,从环境变量读取)
         
     Returns:
-        Dict包含:
-        - symbol: 股票代码
-        - date: 日期
-        - net_buy: 净买入额（元），正数表示流入，负数表示流出
-        - rank: 当日北向资金净买入排名（如果有）
-        - status: 数据状态 ('success' 或 'no_data')
+        dict: {
+            "date": str,              // 日期
+            "symbol": str,            // 股票代码
+            "buy_amount": float,      // 北向资金买入金额(万元),null表示数据缺失
+            "sell_amount": float,     // 北向资金卖出金额(万元),null表示数据缺失
+            "net_amount": float,      // 北向资金净流入(万元),正值为流入,负值为流出,null表示数据缺失
+            "data_source": str,       // 数据源("tushare"或"akshare"或"error")
+            "error": str              // 错误信息(如果有)
+        }
         
     Example:
-        >>> result = get_northbound_flow("600519.SH", "2024-01-15")
-        >>> print(result)
-        {
-            "symbol": "600519.SH",
-            "date": "2024-01-15",
-            "net_buy": 120000000,
-            "rank": 5,
-            "status": "success"
-        }
+        >>> data = get_northbound_flow("600000", "2024-01-15")
+        >>> if data["net_amount"] and data["net_amount"] > 0:
+        ...     print(f"北向资金净流入{data['net_amount']}万元")
+        
+    Notes:
+        - 北向资金指通过沪深股通流入A股的外资
+        - 净流入>1000万通常被视为显著流入信号
+        - 数据可能存在1-2天延迟
+        - 数据缺失时返回null,不影响其他维度使用
     """
-    data = _load_consensus_data(symbol, date)
+    if not ConsensusDataFetcher:
+        return {
+            "date": date,
+            "symbol": symbol,
+            "buy_amount": None,
+            "sell_amount": None,
+            "net_amount": None,
+            "data_source": "error",
+            "error": "ConsensusDataFetcher not available"
+        }
     
-    if data is None:
+    fetcher = ConsensusDataFetcher(tushare_token)
+    return fetcher.fetch_northbound_flow(symbol, date)
+
+
+@mcp_tool()
+def get_margin_trading(symbol: str, date: str, tushare_token: Optional[str] = None) -> Dict[str, Any]:
+    """
+    获取融资融券数据
+    
+    Args:
+        symbol: 股票代码,如"600000"
+        date: 查询日期,格式"YYYY-MM-DD"
+        tushare_token: Tushare Pro API Token(可选)
+        
+    Returns:
+        dict: {
+            "date": str,
+            "symbol": str,
+            "margin_balance": float,      // 融资余额(万元),null表示数据缺失
+            "short_balance": float,       // 融券余额(万元),null表示数据缺失
+            "margin_buy_amount": float,   // 融资买入额(万元),null表示数据缺失
+            "data_source": str
+        }
+        
+    Example:
+        >>> data = get_margin_trading("600000", "2024-01-15")
+        >>> # 计算融资余额环比(需要历史数据)
+        >>> if data["margin_balance"]:
+        ...     print(f"融资余额:{data['margin_balance']}万元")
+        
+    Notes:
+        - 融资:借钱买股票,看多信号
+        - 融券:借股票卖出,看空信号
+        - 融资余额增长>5%通常被视为积极信号
+        - 需要有融资融券资格的股票才有数据
+    """
+    if not ConsensusDataFetcher:
+        return {
+            "date": date,
+            "symbol": symbol,
+            "margin_balance": None,
+            "short_balance": None,
+            "margin_buy_amount": None,
+            "data_source": "error",
+            "error": "ConsensusDataFetcher not available"
+        }
+    
+    fetcher = ConsensusDataFetcher(tushare_token)
+    return fetcher.fetch_margin_trading(symbol, date)
+
+
+@mcp_tool()
+def get_analyst_ratings(symbol: str, date: str, tushare_token: Optional[str] = None) -> Dict[str, Any]:
+    """
+    获取券商分析师评级数据
+    
+    Args:
+        symbol: 股票代码,如"600000"
+        date: 查询日期,格式"YYYY-MM-DD"
+        tushare_token: Tushare Pro API Token(可选)
+        
+    Returns:
+        dict: {
+            "date": str,
+            "symbol": str,
+            "rating": str,                // 最新评级("买入"/"增持"/"中性"/"减持"/"卖出"),null表示无评级
+            "target_price": float,        // 目标价(元),null表示数据缺失
+            "rating_change": str,         // 评级变化("上调"/"维持"/"下调"),null表示数据缺失
+            "institution_count": int,     // 评级机构数量,null表示数据缺失
+            "data_source": str
+        }
+        
+    Example:
+        >>> data = get_analyst_ratings("600000", "2024-01-15")
+        >>> if data["rating"] == "买入" and data["rating_change"] == "上调":
+        ...     print("券商上调评级至买入,积极信号")
+        
+    Notes:
+        - 评级权重:买入(10分)>增持(5分)>中性(0分)>减持(-5分)>卖出(-10分)
+        - 评级上调通常是积极信号
+        - 机构数量>5家评级更有参考价值
+        - 注意评级时效性,超过1个月的评级参考价值降低
+    """
+    if not ConsensusDataFetcher:
+        return {
+            "date": date,
+            "symbol": symbol,
+            "rating": None,
+            "target_price": None,
+            "rating_change": None,
+            "institution_count": None,
+            "data_source": "error",
+            "error": "ConsensusDataFetcher not available"
+        }
+    
+    fetcher = ConsensusDataFetcher(tushare_token)
+    return fetcher.fetch_analyst_ratings(symbol, date)
+
+
+@mcp_tool()
+def get_industry_heat(industry: str, date: str, tushare_token: Optional[str] = None) -> Dict[str, Any]:
+    """
+    获取行业热度数据
+    
+    Args:
+        industry: 行业名称,如"银行"、"医药"、"半导体"等
+        date: 查询日期,格式"YYYY-MM-DD"
+        tushare_token: Tushare Pro API Token(可选)
+        
+    Returns:
+        dict: {
+            "date": str,
+            "industry": str,
+            "pct_change": float,          // 行业当日涨跌幅(%),null表示数据缺失
+            "net_flow": float,            // 行业资金净流入(万元),null表示数据缺失
+            "heat_rank": int,             // 热度排名(1=最热),null表示数据缺失
+            "data_source": str
+        }
+        
+    Example:
+        >>> data = get_industry_heat("银行", "2024-01-15")
+        >>> if data["pct_change"] and data["pct_change"] > 2:
+        ...     print(f"银行行业上涨{data['pct_change']}%,表现强势")
+        
+    Notes:
+        - 行业涨幅>大盘2%通常被视为热门行业
+        - 行业热度排名前10%的行业配置价值较高
+        - 行业轮动是A股重要特征,关注行业趋势
+        - 常见行业分类:银行、地产、医药、消费、科技、周期等
+    """
+    if not ConsensusDataFetcher:
+        return {
+            "date": date,
+            "industry": industry,
+            "pct_change": None,
+            "net_flow": None,
+            "heat_rank": None,
+            "data_source": "error",
+            "error": "ConsensusDataFetcher not available"
+        }
+    
+    fetcher = ConsensusDataFetcher(tushare_token)
+    return fetcher.fetch_industry_heat(industry, date)
+
+
+@mcp_tool()
+def get_all_consensus(symbol: str, date: str, industry: Optional[str] = None, 
+                      tushare_token: Optional[str] = None) -> Dict[str, Any]:
+    """
+    获取股票的全部共识数据(一次性获取4个维度)
+    
+    Args:
+        symbol: 股票代码,如"600000"
+        date: 查询日期,格式"YYYY-MM-DD"
+        industry: 行业名称(可选),如"银行"
+        tushare_token: Tushare Pro API Token(可选)
+        
+    Returns:
+        dict: {
+            "symbol": str,
+            "date": str,
+            "northbound": dict,           // 北向资金数据(可能为null)
+            "margin": dict,               // 融资融券数据(可能为null)
+            "ratings": dict,              // 券商评级数据(可能为null)
+            "industry": dict              // 行业热度数据(可能为null)
+        }
+        
+    Example:
+        >>> consensus = get_all_consensus("600000", "2024-01-15", industry="银行")
+        >>> 
+        >>> # 检查北向资金
+        >>> if consensus["northbound"] and consensus["northbound"]["net_amount"]:
+        ...     net = consensus["northbound"]["net_amount"]
+        ...     print(f"北向资金{'流入' if net > 0 else '流出'}{abs(net)}万元")
+        >>> 
+        >>> # 检查券商评级
+        >>> if consensus["ratings"] and consensus["ratings"]["rating"]:
+        ...     print(f"券商评级:{consensus['ratings']['rating']}")
+        
+    Notes:
+        - 这是推荐的获取共识数据方式,一次性获取所有维度
+        - 各维度数据可能独立缺失,使用前需检查是否为null
+        - 缺失的数据在共识分数计算时会记0分
+        - 建议配合calculate_consensus_score()使用
+    """
+    if not ConsensusDataFetcher:
         return {
             "symbol": symbol,
             "date": date,
-            "net_buy": 0,
-            "rank": None,
-            "status": "no_data",
-            "message": "未找到共识数据，请先运行 data/get_consensus_data.py 获取数据"
+            "northbound": None,
+            "margin": None,
+            "ratings": None,
+            "industry": None,
+            "error": "ConsensusDataFetcher not available"
         }
     
-    net_buy = data.get('northbound_flow', 0)
-    
-    return {
-        "symbol": symbol,
-        "date": date,
-        "net_buy": net_buy,
-        "rank": data.get('northbound_rank'),
-        "status": "success",
-        "interpretation": "北向资金流入" if net_buy > 0 else "北向资金流出" if net_buy < 0 else "北向资金无变化"
-    }
+    fetcher = ConsensusDataFetcher(tushare_token)
+    return fetcher.fetch_all_consensus_data(symbol, date, industry)
 
 
-@mcp.tool()
-def get_margin_info(symbol: str, date: str) -> Dict[str, Any]:
-    """获取融资融券信息
-    
-    查询指定股票的融资融券数据，包括融资余额及其变化。
-    融资余额增加表示看多情绪上升，减少表示看多情绪下降。
-    
-    Args:
-        symbol: 股票代码，如 '600519.SH'
-        date: 查询日期，格式 'YYYY-MM-DD'
-        
-    Returns:
-        Dict包含:
-        - symbol: 股票代码
-        - date: 日期
-        - margin_balance: 融资余额（元）
-        - chg_rate: 融资余额变化率（相比前一日）
-        - margin_buy: 融资买入额（元）
-        - status: 数据状态
-        
-    Example:
-        >>> result = get_margin_info("600519.SH", "2024-01-15")
-        >>> print(result)
-        {
-            "symbol": "600519.SH",
-            "date": "2024-01-15",
-            "margin_balance": 5000000000,
-            "chg_rate": 0.05,
-            "status": "success"
-        }
-    """
-    data = _load_consensus_data(symbol, date)
-    
-    if data is None:
-        return {
-            "symbol": symbol,
-            "date": date,
-            "margin_balance": 0,
-            "chg_rate": 0,
-            "status": "no_data",
-            "message": "未找到共识数据"
-        }
-    
-    margin_balance = data.get('margin_balance', 0)
-    chg_rate = data.get('margin_balance_chg', 0)
-    
-    return {
-        "symbol": symbol,
-        "date": date,
-        "margin_balance": margin_balance,
-        "chg_rate": chg_rate,
-        "status": "success",
-        "interpretation": "融资做多意愿增强" if chg_rate > 0.03 else "融资做多意愿减弱" if chg_rate < -0.03 else "融资情绪稳定"
-    }
+# 工具函数列表(供MCP框架注册)
+MCP_TOOLS = [
+    get_northbound_flow,
+    get_margin_trading,
+    get_analyst_ratings,
+    get_industry_heat,
+    get_all_consensus
+]
 
 
-@mcp.tool()
-def get_broker_ratings(symbol: str, days: int = 30) -> Dict[str, Any]:
-    """获取券商评级汇总
-    
-    统计最近N天内各券商对该股票的评级情况。
-    券商评级是专业机构的研究结论，多家券商一致看好具有参考价值。
-    
-    Args:
-        symbol: 股票代码，如 '600519.SH'
-        days: 统计最近多少天的评级，默认30天
-        
-    Returns:
-        Dict包含:
-        - symbol: 股票代码
-        - period: 统计周期（天）
-        - buy_count: "买入"评级次数
-        - hold_count: "持有"评级次数
-        - sell_count: "卖出"评级次数
-        - total_count: 总评级次数
-        - avg_target_price: 平均目标价（如果有）
-        - status: 数据状态
-        
-    Example:
-        >>> result = get_broker_ratings("600519.SH", 30)
-        >>> print(result)
-        {
-            "symbol": "600519.SH",
-            "period": 30,
-            "buy_count": 12,
-            "hold_count": 3,
-            "sell_count": 0,
-            "total_count": 15,
-            "status": "success"
-        }
-    """
-    # 由于券商评级数据需要单独查询，这里返回模拟数据结构
-    # 实际使用时需要从 consensus_data.jsonl 或 Tushare 获取
-    
-    today_date = get_config_value("TODAY_DATE")
-    data = _load_consensus_data(symbol, today_date)
-    
-    if data is None:
-        return {
-            "symbol": symbol,
-            "period": days,
-            "buy_count": 0,
-            "hold_count": 0,
-            "sell_count": 0,
-            "total_count": 0,
-            "status": "no_data",
-            "message": "未找到券商评级数据"
-        }
-    
-    recommend_count = data.get('broker_recommend_count', 0)
-    
-    return {
-        "symbol": symbol,
-        "period": days,
-        "buy_count": recommend_count,
-        "hold_count": 0,
-        "sell_count": 0,
-        "total_count": recommend_count,
-        "status": "success",
-        "interpretation": "券商强烈看好" if recommend_count >= 10 else "券商较为看好" if recommend_count >= 5 else "券商关注度一般"
-    }
-
-
-@mcp.tool()
-def get_industry_heat(symbol: str, date: str) -> Dict[str, Any]:
-    """获取所属行业热度
-    
-    查询该股票所属行业在当日的市场热度。
-    行业热度高时，板块内个股更容易获得资金关注和上涨机会。
-    
-    Args:
-        symbol: 股票代码，如 '600519.SH'
-        date: 查询日期，格式 'YYYY-MM-DD'
-        
-    Returns:
-        Dict包含:
-        - symbol: 股票代码
-        - date: 日期
-        - industry: 所属行业名称
-        - heat_score: 行业热度分数 (0-1)
-        - rank: 行业热度排名
-        - status: 数据状态
-        
-    Example:
-        >>> result = get_industry_heat("600519.SH", "2024-01-15")
-        >>> print(result)
-        {
-            "symbol": "600519.SH",
-            "date": "2024-01-15",
-            "industry": "白酒",
-            "heat_score": 0.85,
-            "rank": 3,
-            "status": "success"
-        }
-    """
-    # 加载行业映射
-    mapping_file = Path(project_root) / "data" / "industry_mapping.json"
-    industry_name = "未知"
-    
-    if mapping_file.exists():
-        with open(mapping_file, 'r', encoding='utf-8') as f:
-            mapping = json.load(f)
-            # 简化：从行业映射中查找股票所属行业
-            for ind_name, ind_data in mapping.get('industries', {}).items():
-                for sub_ind, stocks in ind_data.get('representative_stocks', {}).items():
-                    if symbol in stocks:
-                        industry_name = sub_ind
-                        break
-    
-    data = _load_consensus_data(symbol, date)
-    
-    if data is None:
-        return {
-            "symbol": symbol,
-            "date": date,
-            "industry": industry_name,
-            "heat_score": 0,
-            "rank": None,
-            "status": "no_data"
-        }
-    
-    heat_score = data.get('industry_heat', 0)
-    
-    return {
-        "symbol": symbol,
-        "date": date,
-        "industry": industry_name,
-        "heat_score": heat_score,
-        "rank": data.get('industry_rank'),
-        "status": "success",
-        "interpretation": "行业处于热点" if heat_score > 0.7 else "行业热度一般" if heat_score > 0.3 else "行业较为冷门"
-    }
-
-
-@mcp.tool()
-def get_technical_consensus(symbol: str, date: str) -> Dict[str, Any]:
-    """获取技术指标共识状态
-    
-    分析股票的技术指标状态，包括是否创新高、均线排列等。
-    多个技术指标同时向好表示技术面共识强。
-    
-    Args:
-        symbol: 股票代码，如 '600519.SH'
-        date: 查询日期，格式 'YYYY-MM-DD'
-        
-    Returns:
-        Dict包含:
-        - symbol: 股票代码
-        - date: 日期
-        - year_high: 是否创年内新高
-        - ma_golden_cross: 是否均线金叉
-        - macd_positive: MACD是否多头
-        - volume_surge: 是否放量
-        - technical_score: 技术面综合得分 (0-100)
-        - status: 数据状态
-        
-    Example:
-        >>> result = get_technical_consensus("600519.SH", "2024-01-15")
-        >>> print(result)
-        {
-            "symbol": "600519.SH",
-            "date": "2024-01-15",
-            "year_high": True,
-            "ma_golden_cross": True,
-            "technical_score": 85,
-            "status": "success"
-        }
-    """
-    # 技术指标需要基于历史价格计算
-    # 这里返回基本结构，实际需要从price数据计算
-    
-    return {
-        "symbol": symbol,
-        "date": date,
-        "year_high": False,
-        "ma_golden_cross": False,
-        "macd_positive": False,
-        "volume_surge": False,
-        "technical_score": 50,
-        "status": "pending",
-        "message": "技术指标计算功能待实现，需要基于历史价格数据计算MA、MACD等指标"
-    }
-
-
+# 使用示例
 if __name__ == "__main__":
-    port = int(os.getenv("CONSENSUS_HTTP_PORT", "8004"))
-    mcp.run(transport="streamable-http", port=port)
+    import json
+    
+    print("=" * 80)
+    print("共识数据查询工具示例")
+    print("=" * 80)
+    
+    # 示例1: 获取北向资金数据
+    print("\n1. 获取北向资金数据:")
+    northbound = get_northbound_flow("600000", "2024-01-15")
+    print(json.dumps(northbound, indent=2, ensure_ascii=False))
+    
+    # 示例2: 获取融资融券数据
+    print("\n2. 获取融资融券数据:")
+    margin = get_margin_trading("600000", "2024-01-15")
+    print(json.dumps(margin, indent=2, ensure_ascii=False))
+    
+    # 示例3: 获取券商评级
+    print("\n3. 获取券商评级:")
+    ratings = get_analyst_ratings("600000", "2024-01-15")
+    print(json.dumps(ratings, indent=2, ensure_ascii=False))
+    
+    # 示例4: 获取行业热度
+    print("\n4. 获取行业热度:")
+    industry = get_industry_heat("银行", "2024-01-15")
+    print(json.dumps(industry, indent=2, ensure_ascii=False))
+    
+    # 示例5: 获取全部共识数据(推荐)
+    print("\n5. 获取全部共识数据:")
+    all_consensus = get_all_consensus("600000", "2024-01-15", industry="银行")
+    print(json.dumps(all_consensus, indent=2, ensure_ascii=False))
+    
+    print("\n" + "=" * 80)
+    print("提示:实际使用时需要配置TUSHARE_TOKEN环境变量")
+    print("=" * 80)

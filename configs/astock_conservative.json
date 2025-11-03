@@ -1,0 +1,84 @@
+{
+  "config_name": "A股沪深300稳健策略",
+  "market": "ASTOCK",
+  "strategy_type": "conservative",
+  
+  "data": {
+    "stock_pool": "HS300",
+    "data_source": "tushare",
+    "fallback_source": "akshare",
+    "start_date": "2023-01-01",
+    "end_date": "2024-12-31",
+    "adjustment": "qfq"
+  },
+  
+  "capital": {
+    "initial_capital": 1000000,
+    "max_positions": 5,
+    "max_position_ratio": 0.3,
+    "reserve_ratio": 0.1
+  },
+  
+  "trading_rules": {
+    "enable_t1_check": true,
+    "enable_limit_price_check": true,
+    "enable_suspended_check": true,
+    "min_trade_unit": 100,
+    "commission_rate": 0.0003,
+    "slippage_rate": 0.001,
+    "min_commission": 5.0
+  },
+  
+  "consensus_filter": {
+    "enable": true,
+    "min_total_score": 70,
+    "min_technical_score": 12,
+    "min_capital_score": 18,
+    "min_logic_score": 18,
+    "min_sentiment_score": 10,
+    "min_data_completeness": 60,
+    "missing_score_strategy": "zero"
+  },
+  
+  "risk_control": {
+    "max_drawdown_limit": 0.15,
+    "stop_loss_ratio": 0.08,
+    "take_profit_ratio": 0.20,
+    "position_stop_loss": 0.10,
+    "trailing_stop": true,
+    "trailing_stop_ratio": 0.05
+  },
+  
+  "strategy_params": {
+    "rebalance_frequency": "weekly",
+    "holding_period_min": 5,
+    "holding_period_max": 60,
+    "buy_signal_threshold": 75,
+    "sell_signal_threshold": 50,
+    "volume_threshold": 1.2
+  },
+  
+  "backtest": {
+    "mode": "backtest",
+    "enable_time_travel_check": true,
+    "enable_compliance_check": true,
+    "benchmark": "000300.SH",
+    "report_output": "./reports/astock_conservative_report.json"
+  },
+  
+  "logging": {
+    "level": "INFO",
+    "log_file": "./logs/astock_conservative.log",
+    "log_trades": true,
+    "log_daily_positions": true
+  },
+  
+  "notifications": {
+    "enable": false,
+    "channels": [],
+    "notify_on_trade": false,
+    "notify_on_error": true
+  },
+  
+  "description": "A股沪深300指数成分股稳健策略配置,适合风险偏好较低的投资者。采用多维度共识筛选,严格风控,追求稳定收益。"
+}
