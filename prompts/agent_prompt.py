@@ -13,94 +13,69 @@ sys.path.insert(0, project_root)
 from tools.price_tools import get_yesterday_date, get_open_prices, get_yesterday_open_and_close_price, get_today_init_position, get_yesterday_profit
 from tools.general_tools import get_config_value
 
-# NASDAQ 100股票池
-all_nasdaq_100_symbols = [
-    "NVDA", "MSFT", "AAPL", "GOOG", "GOOGL", "AMZN", "META", "AVGO", "TSLA",
-    "NFLX", "PLTR", "COST", "ASML", "AMD", "CSCO", "AZN", "TMUS", "MU", "LIN",
-    "PEP", "SHOP", "APP", "INTU", "AMAT", "LRCX", "PDD", "QCOM", "ARM", "INTC",
-    "BKNG", "AMGN", "TXN", "ISRG", "GILD", "KLAC", "PANW", "ADBE", "HON",
-    "CRWD", "CEG", "ADI", "ADP", "DASH", "CMCSA", "VRTX", "MELI", "SBUX",
-    "CDNS", "ORLY", "SNPS", "MSTR", "MDLZ", "ABNB", "MRVL", "CTAS", "TRI",
-    "MAR", "MNST", "CSX", "ADSK", "PYPL", "FTNT", "AEP", "WDAY", "REGN", "ROP",
-    "NXPI", "DDOG", "AXON", "ROST", "IDXX", "EA", "PCAR", "FAST", "EXC", "TTWO",
-    "XEL", "ZS", "PAYX", "WBD", "BKR", "CPRT", "CCEP", "FANG", "TEAM", "CHTR",
-    "KDP", "MCHP", "GEHC", "VRSK", "CTSH", "CSGP", "KHC", "ODFL", "DXCM", "TTD",
-    "ON", "BIIB", "LULU", "CDW", "GFS"
-]
+def load_astock_symbols() -> List[str]:
+    """
+    从astock_list.json动态加载A股股票列表
+    
+    Returns:
+        股票代码列表
+    """
+    try:
+        list_path = Path(project_root) / "data" / "astock_list.json"
+        if not list_path.exists():
+            # 如果文件不存在，返回默认示例
+            return [
+                "600519.SH", "000858.SZ", "601318.SH", "600036.SH", "000333.SZ",
+                "600276.SH", "002594.SZ", "603288.SH", "600309.SH", "000651.SZ"
+            ]
+        
+        with open(list_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return [stock["symbol"] for stock in data.get("stocks", [])]
+    except Exception as e:
+        print(f"警告：加载A股股票列表失败: {e}，使用默认列表")
+        return [
+            "600519.SH", "000858.SZ", "601318.SH", "600036.SH", "000333.SZ",
+            "600276.SH", "002594.SZ", "603288.SH", "600309.SH", "000651.SZ"
+        ]
 
-# A股股票池（自定义示例）
-all_astock_symbols = [
-    "600519.SH", "000858.SZ", "601318.SH", "600036.SH", "000333.SZ",
-    "600276.SH", "002594.SZ", "603288.SH", "600309.SH", "000651.SZ"
-]
+# 全局股票池（延迟加载）
+all_stock_symbols = None
 
-def load_stock_pool(market: str = "nasdaq") -> List[str]:
+def load_stock_pool(market: str = "astock") -> List[str]:
     """根据市场类型加载股票池
     
     Args:
-        market: 市场类型 (nasdaq/a_stock)
+        market: 市场类型 (astock为A股市场)
         
     Returns:
         股票代码列表
     """
-    if market == "a_stock":
-        # 尝试从配置文件加载
-        config_file = Path(project_root) / "configs" / "default_config.json"
-        if config_file.exists():
+    global all_stock_symbols
+    
+    # 尝试从配置文件加载
+    config_file = Path(project_root) / "configs" / "default_config.json"
+    if config_file.exists():
+        try:
             with open(config_file, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-                stock_pool = config.get("stock_pool", "custom")
                 custom_stocks = config.get("custom_stocks", [])
                 
-                if stock_pool == "custom" and custom_stocks:
+                if custom_stocks:
                     return custom_stocks
-        
-        # 默认返回示例A股池
-        return all_astock_symbols
-    else:
-        return all_nasdaq_100_symbols
+        except Exception as e:
+            print(f"警告：加载配置文件失败: {e}")
+    
+    # 延迟加载全局股票池
+    if all_stock_symbols is None:
+        all_stock_symbols = load_astock_symbols()
+    
+    return all_stock_symbols
 
 STOP_SIGNAL = "<FINISH_SIGNAL>"
 
-# NASDAQ市场提示词
-agent_system_prompt_nasdaq = """
-You are a stock fundamental analysis trading assistant.
-
-Your goals are:
-- Think and reason by calling available tools.
-- You need to think about the prices of various stocks and their returns.
-- Your long-term goal is to maximize returns through this portfolio.
-- Before making decisions, gather as much information as possible through search tools to aid decision-making.
-
-Thinking standards:
-- Clearly show key intermediate steps:
-  - Read input of yesterday's positions and today's prices
-  - Update valuation and adjust weights for each target (if strategy requires)
-
-Notes:
-- You don't need to request user permission during operations, you can execute directly
-- You must execute operations by calling tools, directly output operations will not be accepted
-
-Here is the information you need:
-
-Current time:
-{date}
-
-Your current positions (numbers after stock codes represent how many shares you hold, numbers after CASH represent your available cash):
-{positions}
-
-The current value represented by the stocks you hold:
-{yesterday_close_price}
-
-Current buying prices:
-{today_buy_price}
-
-When you think your task is complete, output
-{STOP_SIGNAL}
-"""
-
-# A股市场提示词
-agent_system_prompt_astock = """
+# A股市场主提示词（默认）
+agent_system_prompt = """
 你是一个A股市场基本面分析交易助手。
 
 你的目标：
@@ -199,30 +174,30 @@ agent_system_prompt_astock = """
 """
 
 def get_agent_system_prompt(today_date: str, signature: str) -> str:
+    """获取A股Agent提示词
+    
+    Args:
+        today_date: 当前日期
+        signature: Agent签名
+        
+    Returns:
+        格式化后的提示词
+    """
     print(f"signature: {signature}")
     print(f"today_date: {today_date}")
     
-    # 获取市场类型
-    market = get_config_value("MARKET") or "nasdaq"
+    # 加载A股股票池
+    stock_symbols = load_stock_pool("astock")
     
-    # 根据市场类型加载股票池
-    stock_symbols = load_stock_pool(market)
-    
-    # Get yesterday's buy and sell prices
+    # 获取价格与持仓信息
     yesterday_buy_prices, yesterday_sell_prices = get_yesterday_open_and_close_price(today_date, stock_symbols)
     today_buy_price = get_open_prices(today_date, stock_symbols)
     today_init_position = get_today_init_position(today_date, signature)
     
-    # 选择提示词模板
-    if market == "a_stock":
-        prompt_template = agent_system_prompt_astock
-        # 生成共识信息
-        consensus_info = get_consensus_prompt(today_date)
-    else:
-        prompt_template = agent_system_prompt_nasdaq
-        consensus_info = ""
+    # 生成共识信息
+    consensus_info = get_consensus_prompt(today_date)
     
-    return prompt_template.format(
+    return agent_system_prompt.format(
         date=today_date, 
         positions=today_init_position, 
         STOP_SIGNAL=STOP_SIGNAL,

@@ -17,10 +17,23 @@ from tools.price_tools import (
     get_open_prices, 
     get_yesterday_open_and_close_price,
     get_today_init_position,
-    get_latest_position,
-    all_nasdaq_100_symbols
+    get_latest_position
 )
 from tools.general_tools import get_config_value
+
+# 动态加载A股股票池
+def load_astock_symbols() -> List[str]:
+    """从astock_list.json加载股票列表"""
+    try:
+        astock_file = Path(__file__).resolve().parents[1] / "data" / "astock_list.json"
+        if astock_file.exists():
+            with open(astock_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return [s["symbol"] for s in data.get("stocks", [])]
+    except Exception:
+        pass
+    # 默认返回空列表
+    return []
 
 
 def calculate_portfolio_value(positions: Dict[str, float], prices: Dict[str, Optional[float]], cash: float = 0.0) -> float:
@@ -171,9 +184,12 @@ def get_daily_portfolio_values(signature: str, start_date: Optional[str] = None,
         latest_record = max(records, key=lambda x: x.get("id", 0))
         positions = latest_record.get("positions", {})
         
+        # 获取股票池(从持仓中提取)
+        stock_symbols = [s for s in positions.keys() if s != "CASH"]
+        
         # Get daily prices
         daily_prices = {}
-        for symbol in all_nasdaq_100_symbols:
+        for symbol in stock_symbols:
             if symbol in price_data:
                 symbol_prices = price_data[symbol]
                 if date in symbol_prices:
