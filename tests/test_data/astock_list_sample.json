@@ -1,0 +1,69 @@
+{
+  "update_time": "2025-11-03 09:40:00",
+  "total_count": 7,
+  "stocks": [
+    {
+      "symbol": "600519.SH",
+      "name": "贵州茅台",
+      "industry": "白酒",
+      "market": "主板",
+      "list_date": "2001-08-27",
+      "is_st": false,
+      "status": "normal"
+    },
+    {
+      "symbol": "600001.SH",
+      "name": "邯郸钢铁",
+      "industry": "钢铁",
+      "market": "主板",
+      "list_date": "1992-05-08",
+      "is_st": false,
+      "status": "normal"
+    },
+    {
+      "symbol": "600005.SH",
+      "name": "ST东凌",
+      "industry": "食品加工",
+      "market": "主板",
+      "list_date": "1996-12-18",
+      "is_st": true,
+      "status": "normal"
+    },
+    {
+      "symbol": "688001.SH",
+      "name": "华兴源创",
+      "industry": "电子设备",
+      "market": "科创板",
+      "list_date": "2019-07-22",
+      "is_st": false,
+      "status": "normal"
+    },
+    {
+      "symbol": "300001.SZ",
+      "name": "特锐德",
+      "industry": "电气设备",
+      "market": "创业板",
+      "list_date": "2009-10-30",
+      "is_st": false,
+      "status": "normal"
+    },
+    {
+      "symbol": "000001.SZ",
+      "name": "平安银行",
+      "industry": "银行",
+      "market": "主板",
+      "list_date": "1991-04-03",
+      "is_st": false,
+      "status": "normal"
+    },
+    {
+      "symbol": "600036.SH",
+      "name": "*ST招华",
+      "industry": "银行",
+      "market": "主板",
+      "list_date": "2001-09-18",
+      "is_st": true,
+      "status": "normal"
+    }
+  ]
+}
