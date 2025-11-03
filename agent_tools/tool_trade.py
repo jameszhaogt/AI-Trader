@@ -10,6 +10,7 @@ sys.path.insert(0, project_root)
 from tools.price_tools import get_yesterday_date, get_open_prices, get_yesterday_open_and_close_price, get_latest_position, get_yesterday_profit
 import json
 from tools.general_tools import get_config_value,write_config_value
+from tools.astock_rules import validate_trade_rules as validate_astock_rules
 mcp = FastMCP("TradeTools")
 
 
@@ -70,6 +71,13 @@ def buy(symbol: str, amount: int) -> Dict[str, Any]:
     
     # Get current trading date from environment variable
     today_date = get_config_value("TODAY_DATE")
+    
+    # A股规则校验
+    market = get_config_value("MARKET") or "nasdaq"  # 默认NASDAQ
+    if market == "a_stock":
+        validation = validate_astock_rules(symbol, amount, "buy", today_date, signature)
+        if not validation["valid"]:
+            return {"error": validation["error"], "symbol": symbol, "date": today_date}
     
     # Step 2: Get current latest position and operation ID
     # get_latest_position returns two values: position dictionary and current maximum operation ID
@@ -165,6 +173,13 @@ def sell(symbol: str, amount: int) -> Dict[str, Any]:
     
     # Get current trading date from environment variable
     today_date = get_config_value("TODAY_DATE")
+    
+    # A股规则校验
+    market = get_config_value("MARKET") or "nasdaq"  # 默认NASDAQ
+    if market == "a_stock":
+        validation = validate_astock_rules(symbol, amount, "sell", today_date, signature)
+        if not validation["valid"]:
+            return {"error": validation["error"], "symbol": symbol, "date": today_date}
     
     # Step 2: Get current latest position and operation ID under lock
     # get_latest_position returns two values: position dictionary and current maximum operation ID

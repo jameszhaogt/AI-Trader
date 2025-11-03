@@ -1,9 +1,36 @@
 {
+  "market": "a_stock",
   "agent_type": "BaseAgent",
   "date_range": {
     "init_date": "2025-10-01",
     "end_date": "2025-10-21"
   },
+  "trading_rules": {
+    "t_plus": 1,
+    "price_limit": {
+      "main_board": 0.1,
+      "star_market": 0.2,
+      "gem_board": 0.2,
+      "st_stock": 0.05
+    },
+    "min_unit": 100
+  },
+  "data_source": {
+    "provider": "tushare",
+    "api_token": "${TUSHARE_TOKEN}"
+  },
+  "consensus_filter": {
+    "enabled": true,
+    "min_score": 70,
+    "weights": {
+      "technical": 0.2,
+      "capital": 0.3,
+      "logic": 0.3,
+      "sentiment": 0.2
+    }
+  },
+  "stock_pool": "hs300",
+  "custom_stocks": [],
   "models": [
     {
       "name": "claude-3.7-sonnet",

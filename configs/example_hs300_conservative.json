@@ -1,0 +1,54 @@
+{
+  "market": "a_stock",
+  "agent_type": "BaseAgent",
+  "description": "沪深300价值投资策略 - 稳健型",
+  "date_range": {
+    "init_date": "2024-01-01",
+    "end_date": "2024-12-31"
+  },
+  "trading_rules": {
+    "t_plus": 1,
+    "price_limit": {
+      "main_board": 0.1,
+      "star_market": 0.2,
+      "gem_board": 0.2,
+      "st_stock": 0.05
+    },
+    "min_unit": 100
+  },
+  "data_source": {
+    "provider": "tushare",
+    "api_token": "${TUSHARE_TOKEN}"
+  },
+  "consensus_filter": {
+    "enabled": true,
+    "min_score": 60,
+    "weights": {
+      "technical": 0.15,
+      "capital": 0.25,
+      "logic": 0.40,
+      "sentiment": 0.20
+    }
+  },
+  "stock_pool": "hs300",
+  "custom_stocks": [],
+  "models": [
+    {
+      "name": "gpt-4o",
+      "basemodel": "openai/gpt-4o",
+      "signature": "gpt-4o-hs300",
+      "enabled": true
+    }
+  ],
+  "agent_config": {
+    "max_steps": 30,
+    "max_retries": 3,
+    "base_delay": 1.0,
+    "initial_cash": 500000.0,
+    "strategy_bias": "value",
+    "risk_tolerance": "conservative"
+  },
+  "log_config": {
+    "log_path": "./data/agent_data"
+  }
+}
