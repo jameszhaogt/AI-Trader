@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# prepare data
+# prepare A股数据
 
 cd ./data
-# python get_daily_price.py #run daily price data
-python get_interdaily_price.py #run interdaily (hourly) price data
-python merge_jsonl.py
+# 使用get_astock_data.py下载A股数据
+python get_astock_data.py
 cd ../

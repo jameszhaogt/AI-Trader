@@ -40,20 +40,21 @@ class BaseAgent:
     5. Position and configuration management
     """
     
-    # Default NASDAQ 100 stock symbols
-    DEFAULT_STOCK_SYMBOLS = [
-        "NVDA", "MSFT", "AAPL", "GOOG", "GOOGL", "AMZN", "META", "AVGO", "TSLA",
-        "NFLX", "PLTR", "COST", "ASML", "AMD", "CSCO", "AZN", "TMUS", "MU", "LIN",
-        "PEP", "SHOP", "APP", "INTU", "AMAT", "LRCX", "PDD", "QCOM", "ARM", "INTC",
-        "BKNG", "AMGN", "TXN", "ISRG", "GILD", "KLAC", "PANW", "ADBE", "HON",
-        "CRWD", "CEG", "ADI", "ADP", "DASH", "CMCSA", "VRTX", "MELI", "SBUX",
-        "CDNS", "ORLY", "SNPS", "MSTR", "MDLZ", "ABNB", "MRVL", "CTAS", "TRI",
-        "MAR", "MNST", "CSX", "ADSK", "PYPL", "FTNT", "AEP", "WDAY", "REGN", "ROP",
-        "NXPI", "DDOG", "AXON", "ROST", "IDXX", "EA", "PCAR", "FAST", "EXC", "TTWO",
-        "XEL", "ZS", "PAYX", "WBD", "BKR", "CPRT", "CCEP", "FANG", "TEAM", "CHTR",
-        "KDP", "MCHP", "GEHC", "VRSK", "CTSH", "CSGP", "KHC", "ODFL", "DXCM", "TTD",
-        "ON", "BIIB", "LULU", "CDW", "GFS"
-    ]
+    @staticmethod
+    def _load_default_stock_symbols():
+        """从astock_list.json加载A股股票池"""
+        try:
+            import json
+            from pathlib import Path
+            list_path = Path(__file__).resolve().parents[2] / "data" / "astock_list.json"
+            if list_path.exists():
+                with open(list_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return [s["symbol"] for s in data.get("stocks", [])]
+        except Exception:
+            pass
+        # 默认返回空列表
+        return []
     
     def __init__(
         self,
@@ -76,7 +77,7 @@ class BaseAgent:
         Args:
             signature: Agent signature/name
             basemodel: Base model name
-            stock_symbols: List of stock symbols, defaults to NASDAQ 100
+            stock_symbols: List of stock symbols, defaults to loading from astock_list.json
             mcp_config: MCP tool configuration, including port and URL information
             log_path: Log path, defaults to ./data/agent_data
             max_steps: Maximum reasoning steps
@@ -89,7 +90,7 @@ class BaseAgent:
         """
         self.signature = signature
         self.basemodel = basemodel
-        self.stock_symbols = stock_symbols or self.DEFAULT_STOCK_SYMBOLS
+        self.stock_symbols = stock_symbols or self._load_default_stock_symbols()
         self.max_steps = max_steps
         self.max_retries = max_retries
         self.base_delay = base_delay
