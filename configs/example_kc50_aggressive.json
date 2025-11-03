@@ -1,0 +1,54 @@
+{
+  "market": "a_stock",
+  "agent_type": "BaseAgent",
+  "description": "科创板高成长策略配置 - 激进型",
+  "date_range": {
+    "init_date": "2024-01-01",
+    "end_date": "2024-12-31"
+  },
+  "trading_rules": {
+    "t_plus": 1,
+    "price_limit": {
+      "main_board": 0.1,
+      "star_market": 0.2,
+      "gem_board": 0.2,
+      "st_stock": 0.05
+    },
+    "min_unit": 100
+  },
+  "data_source": {
+    "provider": "tushare",
+    "api_token": "${TUSHARE_TOKEN}"
+  },
+  "consensus_filter": {
+    "enabled": true,
+    "min_score": 80,
+    "weights": {
+      "technical": 0.25,
+      "capital": 0.35,
+      "logic": 0.25,
+      "sentiment": 0.15
+    }
+  },
+  "stock_pool": "kc50",
+  "custom_stocks": [],
+  "models": [
+    {
+      "name": "gpt-4o",
+      "basemodel": "openai/gpt-4o",
+      "signature": "gpt-4o-kc50",
+      "enabled": true
+    }
+  ],
+  "agent_config": {
+    "max_steps": 30,
+    "max_retries": 3,
+    "base_delay": 1.0,
+    "initial_cash": 100000.0,
+    "strategy_bias": "growth",
+    "risk_tolerance": "aggressive"
+  },
+  "log_config": {
+    "log_path": "./data/agent_data"
+  }
+}

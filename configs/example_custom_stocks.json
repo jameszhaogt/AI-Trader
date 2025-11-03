@@ -1,0 +1,70 @@
+{
+  "market": "a_stock",
+  "agent_type": "BaseAgent",
+  "description": "自选白马股组合 - 长期持有策略",
+  "date_range": {
+    "init_date": "2024-01-01",
+    "end_date": "2024-12-31"
+  },
+  "trading_rules": {
+    "t_plus": 1,
+    "price_limit": {
+      "main_board": 0.1,
+      "star_market": 0.2,
+      "gem_board": 0.2,
+      "st_stock": 0.05
+    },
+    "min_unit": 100
+  },
+  "data_source": {
+    "provider": "tushare",
+    "api_token": "${TUSHARE_TOKEN}"
+  },
+  "consensus_filter": {
+    "enabled": false,
+    "min_score": 70,
+    "weights": {
+      "technical": 0.2,
+      "capital": 0.3,
+      "logic": 0.3,
+      "sentiment": 0.2
+    }
+  },
+  "stock_pool": "custom",
+  "custom_stocks": [
+    "600519.SH",
+    "000858.SZ",
+    "601318.SH",
+    "600036.SH",
+    "000333.SZ",
+    "600276.SH",
+    "002594.SZ",
+    "603288.SH",
+    "600309.SH",
+    "000651.SZ"
+  ],
+  "models": [
+    {
+      "name": "claude-3.7-sonnet",
+      "basemodel": "anthropic/claude-3.7-sonnet",
+      "signature": "claude-custom-stocks",
+      "enabled": true
+    }
+  ],
+  "agent_config": {
+    "max_steps": 30,
+    "max_retries": 3,
+    "base_delay": 1.0,
+    "initial_cash": 300000.0,
+    "strategy_bias": "balanced",
+    "risk_tolerance": "moderate",
+    "holding_period": "long_term"
+  },
+  "log_config": {
+    "log_path": "./data/agent_data"
+  },
+  "notes": {
+    "stock_selection": "精选消费、金融、医药行业龙头",
+    "strategy_notes": "买入后长期持有，减少交易频率"
+  }
+}

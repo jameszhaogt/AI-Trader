@@ -1,0 +1,91 @@
+{
+  "stock_pools": {
+    "hs300": {
+      "description": "沪深300指数成份股，市值最大、流动性最好，适合稳健型策略",
+      "source": "tushare",
+      "update_frequency": "monthly",
+      "symbols": []
+    },
+    "zz500": {
+      "description": "中证500指数成份股，中盘股，弹性更大，适合成长型策略",
+      "source": "tushare",
+      "update_frequency": "monthly",
+      "symbols": []
+    },
+    "kc50": {
+      "description": "科创50指数成份股，科技创新企业，适合激进型策略",
+      "source": "tushare",
+      "update_frequency": "monthly",
+      "symbols": []
+    },
+    "custom": {
+      "description": "自定义股票池，用户手动配置",
+      "source": "manual",
+      "update_frequency": "on_demand",
+      "symbols": [
+        "600519.SH",
+        "000858.SZ",
+        "601318.SH",
+        "600036.SH",
+        "000333.SZ"
+      ]
+    },
+    "consensus_dynamic": {
+      "description": "动态高共识股票池，每日根据共识分数筛选",
+      "source": "consensus_filter",
+      "update_frequency": "daily",
+      "min_consensus_score": 80,
+      "symbols": []
+    }
+  },
+  "market_info": {
+    "exchanges": {
+      "SH": {
+        "name": "上海证券交易所",
+        "code_prefix": ["600", "601", "603", "688"],
+        "suffix": ".SH",
+        "trading_hours": {
+          "morning": ["09:30", "11:30"],
+          "afternoon": ["13:00", "15:00"]
+        }
+      },
+      "SZ": {
+        "name": "深圳证券交易所",
+        "code_prefix": ["000", "001", "002", "003", "300"],
+        "suffix": ".SZ",
+        "trading_hours": {
+          "morning": ["09:30", "11:30"],
+          "afternoon": ["13:00", "15:00"]
+        }
+      }
+    },
+    "board_types": {
+      "main_board": {
+        "description": "主板",
+        "price_limit": 0.1,
+        "prefixes": ["600", "601", "603", "000", "001"]
+      },
+      "star_market": {
+        "description": "科创板",
+        "price_limit": 0.2,
+        "prefixes": ["688"]
+      },
+      "gem_board": {
+        "description": "创业板",
+        "price_limit": 0.2,
+        "prefixes": ["300"]
+      },
+      "st_stock": {
+        "description": "ST股票",
+        "price_limit": 0.05,
+        "naming_pattern": "^(ST|\\*ST)"
+      }
+    }
+  },
+  "metadata": {
+    "last_update": null,
+    "total_stocks": 0,
+    "data_version": "1.0.0",
+    "notes": "股票池数据需要通过 Tushare API 定期更新，custom 池可手动维护"
+  }
+}
