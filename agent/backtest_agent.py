@@ -22,8 +22,14 @@ import logging
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# TODO: 导入BaseAgent(需要根据实际项目结构调整)
-# from agent.base_agent import BaseAgent
+# 导入BaseAgent
+try:
+    from agent.base_agent.base_agent import BaseAgent
+    HAS_BASE_AGENT = True
+except ImportError:
+    BaseAgent = object  # 如果导入失败，使用object作为基类
+    HAS_BASE_AGENT = False
+    logging.warning("BaseAgent导入失败，BacktestAgent将不继承基类")
 
 
 class BacktestAgent:

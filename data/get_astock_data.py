@@ -21,6 +21,12 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import logging
 
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+    logging.warning("Pandas未安装,请运行: pip install pandas")
+
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -87,16 +93,85 @@ def fetch_stock_list(market: str = "HS300", update: bool = True) -> dict:
         
         pro = ts.pro_api(token)
         
-        # TODO: 实现股票列表获取逻辑
-        # 1. 调用Tushare API获取股票列表
-        # 2. 根据market参数筛选
-        # 3. 识别ST股票
-        # 4. 保存到data/astock_list.json
-        
         logger.info(f"获取{market}股票列表...")
         
-        # 示例实现(需要替换为实际逻辑)
         stocks = []
+        
+        # 根据market参数获取不同的股票列表
+        if market == "HS300":
+            # 获取沪深300成分股
+            df = pro.index_weight(index_code='000300.SH', start_date='', end_date='')
+            if df is not None and not df.empty:
+                # 获取最新日期的成分股
+                latest_date = df['trade_date'].max()
+                df = df[df['trade_date'] == latest_date]
+                stock_codes = df['con_code'].unique()
+            else:
+                stock_codes = []
+        elif market == "KC50":
+            # 获取科创50成分股
+            df = pro.index_weight(index_code='000688.SH', start_date='', end_date='')
+            if df is not None and not df.empty:
+                latest_date = df['trade_date'].max()
+                df = df[df['trade_date'] == latest_date]
+                stock_codes = df['con_code'].unique()
+            else:
+                stock_codes = []
+        elif market == "ALL":
+            # 获取所有A股
+            df = pro.stock_basic(exchange='', list_status='L', fields='ts_code,symbol,name,area,industry,list_date')
+            stock_codes = df['ts_code'].tolist() if df is not None and not df.empty else []
+        else:
+            raise ValueError(f"不支持的市场类型: {market}, 请使用 HS300, KC50 或 ALL")
+        
+        logger.info(f"获取到 {len(stock_codes)} 只股票代码")
+        
+        # 获取股票详细信息
+        for ts_code in stock_codes:
+            try:
+                # 获取股票基本信息
+                info_df = pro.stock_basic(ts_code=ts_code, fields='ts_code,symbol,name,area,industry,market,list_date')
+                
+                if info_df is None or info_df.empty:
+                    logger.warning(f"无法获取 {ts_code} 的基本信息")
+                    continue
+                
+                row = info_df.iloc[0]
+                stock_name = row['name']
+                
+                # 识别ST股票
+                is_st = identify_st_stock(stock_name)
+                
+                # 判断市场类型
+                symbol_code = ts_code.split('.')[0]
+                if symbol_code.startswith('688'):
+                    market_type = '科创板'
+                elif symbol_code.startswith('300'):
+                    market_type = '创业板'
+                elif symbol_code.startswith('60'):
+                    market_type = '主板'
+                elif symbol_code.startswith('00'):
+                    market_type = '主板'
+                else:
+                    market_type = '其他'
+                
+                stock_info = {
+                    "symbol": ts_code,
+                    "name": stock_name,
+                    "industry": row.get('industry', ''),
+                    "market": market_type,
+                    "list_date": row.get('list_date', ''),
+                    "is_st": is_st,
+                    "status": "normal"
+                }
+                
+                stocks.append(stock_info)
+                
+            except Exception as e:
+                logger.warning(f"处理 {ts_code} 时出错: {e}")
+                continue
+        
+        logger.info(f"成功处理 {len(stocks)} 只股票信息")
         
         result = {
             "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -164,17 +239,150 @@ def fetch_daily_data(
         
         logger.info(f"下载 {symbol} 数据: {start_date} 至 {end_date}")
         
-        # TODO: 实现数据下载逻辑
-        # 1. 调用Tushare API获取日线数据
-        # 2. 获取停牌信息
-        # 3. 处理停牌日(使用前收盘价填充)
-        # 4. 判断涨跌停状态
-        # 5. 数据质量校验
-        
         result = []
         
-        # 示例实现(需要替换为实际逻辑)
+        # 1. 获取日线数据
+        ts_code = symbol if '.' in symbol else symbol + '.SH'  # 确保有后缀
         
+        # 使用pro_bar获取复权数据
+        df = ts.pro_bar(ts_code=ts_code, adj=adj, start_date=start_date.replace('-', ''), 
+                        end_date=end_date.replace('-', ''), 
+                        factors=['tor', 'vr'])
+        
+        if df is None or df.empty:
+            logger.warning(f"{symbol} 没有数据")
+            return result
+        
+        # 按日期升序排列
+        df = df.sort_values('trade_date')
+        
+        # 2. 获取停牌信息
+        suspend_df = None
+        try:
+            suspend_df = pro.suspend_d(ts_code=ts_code, 
+                                      start_date=start_date.replace('-', ''), 
+                                      end_date=end_date.replace('-', ''))
+        except Exception as e:
+            logger.debug(f"获取停牌信息失败: {e}")
+        
+        # 创建停牌日期集合
+        suspended_dates = set()
+        if suspend_df is not None and not suspend_df.empty:
+            suspended_dates = set(suspend_df['suspend_date'].astype(str))
+        
+        # 3. 获取股票名称用于ST判断
+        stock_name = ""
+        is_st = False
+        try:
+            basic_df = pro.stock_basic(ts_code=ts_code, fields='name')
+            if basic_df is not None and not basic_df.empty:
+                stock_name = basic_df.iloc[0]['name']
+                is_st = identify_st_stock(stock_name)
+        except:
+            pass
+        
+        # 4. 处理每一天的数据
+        prev_close = None
+        
+        for idx, row in df.iterrows():
+            trade_date = str(row['trade_date'])
+            date_formatted = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
+            
+            open_price = round(float(row['open']), 2)
+            close_price = round(float(row['close']), 2)
+            high_price = round(float(row['high']), 2)
+            low_price = round(float(row['low']), 2)
+            volume = int(row['vol']) if pd.notna(row['vol']) else 0
+            amount = round(float(row['amount']), 2) if pd.notna(row['amount']) else 0.0
+            
+            # 获取前收盘价
+            current_prev_close = round(float(row['pre_close']), 2) if pd.notna(row['pre_close']) else prev_close
+            if current_prev_close is None:
+                current_prev_close = close_price
+            
+            # 计算涨跌幅
+            change_pct = round((close_price / current_prev_close - 1) * 100, 2) if current_prev_close > 0 else 0.0
+            
+            # 判断状态
+            status = "normal"
+            suspend_reason = None
+            
+            # 检查是否停牌
+            if trade_date in suspended_dates:
+                status = "suspended"
+                suspend_reason = "股票停牌"
+            else:
+                # 判断涨跌停
+                limit_ratio = 0.05 if is_st else 0.20 if ts_code.startswith(('688', '300')) else 0.10
+                limit_up = round(current_prev_close * (1 + limit_ratio), 2)
+                limit_down = round(current_prev_close * (1 - limit_ratio), 2)
+                
+                is_limit_up = abs(close_price - limit_up) < 0.01
+                is_limit_down = abs(close_price - limit_down) < 0.01
+                
+                if is_limit_up:
+                    status = "limit_up"
+                elif is_limit_down:
+                    status = "limit_down"
+            
+            record = {
+                "symbol": symbol,
+                "date": date_formatted,
+                "open": open_price,
+                "close": close_price,
+                "high": high_price,
+                "low": low_price,
+                "volume": volume,
+                "amount": amount,
+                "prev_close": current_prev_close,
+                "change_pct": change_pct,
+                "status": status,
+                "is_limit_up": status == "limit_up",
+                "is_limit_down": status == "limit_down",
+                "suspend_reason": suspend_reason
+            }
+            
+            result.append(record)
+            prev_close = close_price
+        
+        # 5. 处理停牌日（填充缺失数据）
+        # 获取交易日历
+        try:
+            cal_df = pro.trade_cal(exchange='SSE', start_date=start_date.replace('-', ''), 
+                                  end_date=end_date.replace('-', ''), is_open='1')
+            if cal_df is not None and not cal_df.empty:
+                all_trade_dates = set(cal_df['cal_date'].astype(str))
+                actual_dates = set(str(r['trade_date']) for idx, r in df.iterrows())
+                missing_dates = all_trade_dates - actual_dates
+                
+                # 为停牌日填充数据
+                for missing_date in sorted(missing_dates):
+                    if prev_close is not None:
+                        date_formatted = f"{missing_date[:4]}-{missing_date[4:6]}-{missing_date[6:8]}"
+                        suspended_record = {
+                            "symbol": symbol,
+                            "date": date_formatted,
+                            "open": prev_close,
+                            "close": prev_close,
+                            "high": prev_close,
+                            "low": prev_close,
+                            "volume": 0,
+                            "amount": 0.0,
+                            "prev_close": prev_close,
+                            "change_pct": 0.0,
+                            "status": "suspended",
+                            "is_limit_up": False,
+                            "is_limit_down": False,
+                            "suspend_reason": "股票停牌"
+                        }
+                        result.append(suspended_record)
+        except Exception as e:
+            logger.debug(f"处理停牌日时出错: {e}")
+        
+        # 按日期排序
+        result.sort(key=lambda x: x['date'])
+        
+        logger.info(f"成功获取 {symbol} {len(result)} 条数据")
         return result
         
     except Exception as e:
@@ -205,7 +413,66 @@ def validate_data_quality(data: List[Dict]) -> Dict:
     warnings = []
     errors = []
     
-    # TODO: 实现数据质量校验逻辑
+    if not data:
+        errors.append("数据列表为空")
+        return {
+            "valid": False,
+            "warnings": warnings,
+            "errors": errors
+        }
+    
+    # 定义必需字段
+    required_fields = ['symbol', 'date', 'open', 'close', 'high', 'low', 'volume', 'amount', 'prev_close']
+    
+    prev_record = None
+    seen_dates = set()
+    
+    for i, record in enumerate(data):
+        # 1. 检查字段完整性
+        for field in required_fields:
+            if field not in record or record[field] is None:
+                errors.append(f"第{i+1}条记录缺少字段: {field}")
+                continue
+        
+        # 如果有错误，跳过后续检查
+        if errors:
+            continue
+            
+        date = record['date']
+        
+        # 2. 检查时间序列 - 无重复
+        if date in seen_dates:
+            errors.append(f"日期重复: {date}")
+        seen_dates.add(date)
+        
+        # 3. 检查价格合理性 (> 0)
+        if record['open'] <= 0 or record['close'] <= 0 or record['high'] <= 0 or record['low'] <= 0:
+            errors.append(f"{date}: 价格必须大于0")
+        
+        # 4. 检查OHLC关系
+        if record['high'] < max(record['open'], record['close']):
+            errors.append(f"{date}: 最高价 {record['high']} < max(open={record['open']}, close={record['close']})")
+        
+        if record['low'] > min(record['open'], record['close']):
+            errors.append(f"{date}: 最低价 {record['low']} > min(open={record['open']}, close={record['close']})")
+        
+        # 5. 检查成交量合理性
+        status = record.get('status', 'normal')
+        if status != 'suspended' and record['volume'] == 0:
+            warnings.append(f"{date}: 非停牌日成交量为0")
+        
+        # 6. 检查价格连续性 (涨跌幅 < 50%)
+        if prev_record is not None and prev_record.get('status') != 'suspended' and status != 'suspended':
+            prev_close = prev_record['close']
+            current_close = record['close']
+            
+            if prev_close > 0:
+                change_pct = abs((current_close / prev_close - 1) * 100)
+                # 非停牌复牌日，涨跌幅应 < 50%
+                if change_pct > 50:
+                    warnings.append(f"{date}: 涨跌幅异常 {change_pct:.2f}% (可能是停牌复牌)")
+        
+        prev_record = record
     
     return {
         "valid": len(errors) == 0,

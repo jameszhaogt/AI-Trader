@@ -235,9 +235,41 @@ class AStockTradeValidator:
         Returns:
             str: "normal" 或 "suspended"
         """
-        # TODO: 实现从merged_data.jsonl读取status字段的逻辑
-        # 临时返回normal
-        return "normal"
+        try:
+            import json
+            import os
+            
+            # 尝试读取merged_data.jsonl或merged_data_{symbol}.jsonl
+            possible_files = [
+                os.path.join(self.data_dir, "merged.jsonl"),
+                os.path.join(self.data_dir, f"merged_data_{symbol}.jsonl"),
+                os.path.join(self.data_dir, "merged_data.jsonl")
+            ]
+            
+            for filepath in possible_files:
+                if not os.path.exists(filepath):
+                    continue
+                
+                # 读取JSONL文件
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        try:
+                            record = json.loads(line)
+                            # 检查是否匹配symbol和date
+                            if record.get('symbol') == symbol and record.get('date') == date:
+                                status = record.get('status', 'normal')
+                                return status
+                        except json.JSONDecodeError:
+                            continue
+            
+            # 如果没有找到数据，假定正常交易
+            return "normal"
+            
+        except Exception as e:
+            # 发生错误时假定正常交易
+            return "normal"
     
     def validate_trade(self, symbol: str, action: str, quantity: int, 
                       price: float, current_date: str, 
@@ -319,7 +351,7 @@ class AStockTradeValidator:
             "is_st": is_st
         }
     
-    def record_trade(self, symbol: str, action: str, date: str):
+    def record_trade(self, symbol: str, action: str, date: str, quantity: int = 0, price: float = 0.0):
         """
         记录交易历史(用于T+1校验)
         
@@ -327,10 +359,48 @@ class AStockTradeValidator:
             symbol: 股票代码
             action: 交易动作 "buy" 或 "sell"
             date: 交易日期 "YYYY-MM-DD"
+            quantity: 交易数量
+            price: 交易价格
         """
+        from datetime import datetime
+        import json
+        import os
+        
+        # 内存记录
         if date not in self.trading_history:
             self.trading_history[date] = {}
         self.trading_history[date][symbol] = action.lower()
+        
+        # 持久化到文件
+        try:
+            trade_history_file = os.path.join(self.data_dir, "trade_history.json")
+            
+            # 读取现有数据
+            if os.path.exists(trade_history_file):
+                with open(trade_history_file, 'r', encoding='utf-8') as f:
+                    history_data = json.load(f)
+            else:
+                history_data = {}
+            
+            # 更新数据
+            if date not in history_data:
+                history_data[date] = {}
+            
+            history_data[date][symbol] = {
+                "action": action.lower(),
+                "quantity": quantity,
+                "price": price,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            # 保存回文件
+            os.makedirs(self.data_dir, exist_ok=True)
+            with open(trade_history_file, 'w', encoding='utf-8') as f:
+                json.dump(history_data, f, ensure_ascii=False, indent=2)
+                
+        except Exception as e:
+            # 持久化失败不影响内存记录
+            pass
 
 
 # MCP工具函数(供Agent调用)
