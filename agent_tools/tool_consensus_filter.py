@@ -183,10 +183,22 @@ class ConsensusScorer:
         # 2. 融资余额(10分)
         margin = consensus_data.get("margin", {})
         if margin and margin.get("margin_balance") is not None:
-            # TODO: 需要历史数据计算环比增长率
-            # 当前简化实现:假设有margin_balance_change字段
-            if "margin_balance_change_pct" in margin:
+            # 计算环比增长率
+            if "margin_balance_change_pct" in margin and margin["margin_balance_change_pct"] is not None:
                 change_pct = margin["margin_balance_change_pct"]
+            else:
+                # 如果没有提供环比数据，尝试从历史数据计算
+                # 需要前一日的融资余额数据，这里假设从consensus_data的历史字段获取
+                prev_margin_balance = margin.get("prev_margin_balance")
+                current_balance = margin.get("margin_balance")
+                
+                if prev_margin_balance and prev_margin_balance > 0:
+                    change_pct = (current_balance - prev_margin_balance) / prev_margin_balance * 100
+                else:
+                    # 无历史数据时，基于绝对值评分
+                    change_pct = None
+            
+            if change_pct is not None:
                 if change_pct > 5:
                     details["margin_score"] = 10.0
                 elif change_pct < -5:
@@ -195,21 +207,41 @@ class ConsensusScorer:
                     details["margin_score"] = change_pct * 2  # 线性映射
                 score += details["margin_score"]
             else:
-                details["margin_score"] = 0.0  # 数据不足时记0分
+                # 无环比数据时记0分
+                details["margin_score"] = 0.0
         else:
             missing_fields.append("margin.margin_balance")
             details["margin_score"] = self.missing_score
         
-        # 3. 主力资金(10分) - TODO: 需要从其他数据源获取
-        # 当前简化:如果有net_flow字段则使用
-        if "net_flow" in consensus_data:
-            net_flow = consensus_data["net_flow"]
-            if net_flow > 5000:
+        # 3. 主力资金(10分)
+        # 从北向资金、融资融券综合计算主力资金流向
+        main_force_flow = 0.0
+        has_main_force_data = False
+        
+        # 优先使用直接提供的net_flow字段
+        if "net_flow" in consensus_data and consensus_data["net_flow"] is not None:
+            main_force_flow = consensus_data["net_flow"]
+            has_main_force_data = True
+        else:
+            # 否则，综合北向资金和融资买入额计算
+            northbound = consensus_data.get("northbound", {})
+            margin = consensus_data.get("margin", {})
+            
+            northbound_net = northbound.get("net_amount", 0) if northbound else 0
+            margin_buy = margin.get("margin_buy_amount", 0) if margin else 0
+            
+            if northbound_net or margin_buy:
+                # 北向资金 + 融资买入作为主力资金流入的代理
+                main_force_flow = (northbound_net or 0) + (margin_buy or 0)
+                has_main_force_data = True
+        
+        if has_main_force_data:
+            if main_force_flow > 5000:
                 details["main_force_score"] = 10.0
-            elif net_flow < -5000:
+            elif main_force_flow < -5000:
                 details["main_force_score"] = -10.0
             else:
-                details["main_force_score"] = net_flow / 500
+                details["main_force_score"] = main_force_flow / 500
             score += details["main_force_score"]
         else:
             missing_fields.append("net_flow")
@@ -281,17 +313,22 @@ class ConsensusScorer:
         # 3. 行业景气度(10分)
         industry = consensus_data.get("industry", {})
         if industry and industry.get("pct_change") is not None:
-            # TODO: 需要对比大盘涨跌幅
-            # 当前简化:假设有industry_vs_market字段
-            if "pct_change" in industry:
-                pct_change = industry["pct_change"]
-                if pct_change > 2:
-                    details["industry_score"] = 10.0
-                elif pct_change < -2:
-                    details["industry_score"] = -10.0
-                else:
-                    details["industry_score"] = pct_change * 5
-                score += details["industry_score"]
+            pct_change = industry["pct_change"]
+            
+            # 对比大盘涨跌幅
+            market_pct_change = consensus_data.get("market_pct_change", 0)  # 大盘涨跌幅
+            
+            # 计算相对涨幅
+            relative_pct = pct_change - market_pct_change
+            
+            # 根据相对涨幅评分
+            if relative_pct > 2:
+                details["industry_score"] = 10.0
+            elif relative_pct < -2:
+                details["industry_score"] = -10.0
+            else:
+                details["industry_score"] = relative_pct * 5
+            score += details["industry_score"]
         else:
             missing_fields.append("industry.pct_change")
             details["industry_score"] = self.missing_score
@@ -327,8 +364,8 @@ class ConsensusScorer:
         details = {}
         missing_fields = []
         
-        # 1. 社交媒体热度(10分) - TODO: 需要从外部API获取
-        if "social_heat_rank" in consensus_data:
+        # 1. 社交媒体热度(10分)
+        if "social_heat_rank" in consensus_data and consensus_data["social_heat_rank"] is not None:
             rank = consensus_data["social_heat_rank"]
             total = consensus_data.get("total_stocks", 5000)
             percentile = (total - rank) / total * 100
@@ -341,11 +378,28 @@ class ConsensusScorer:
                 details["social_score"] = (percentile - 50) / 5
             score += details["social_score"]
         else:
-            missing_fields.append("social_heat_rank")
-            details["social_score"] = self.missing_score
+            # 尝试从行业热度排名作为代理
+            industry = consensus_data.get("industry", {})
+            if industry and industry.get("heat_rank") is not None:
+                # 使用行业热度排名作为社交热度的代理
+                rank = industry["heat_rank"]
+                # 假设总共100个行业
+                total_industries = 100
+                percentile = (total_industries - rank) / total_industries * 100
+                
+                if percentile > 80:
+                    details["social_score"] = 8.0  # 降低权重，因为是代理指标
+                elif percentile < 20:
+                    details["social_score"] = -8.0
+                else:
+                    details["social_score"] = (percentile - 50) / 10
+                score += details["social_score"]
+            else:
+                missing_fields.append("social_heat_rank")
+                details["social_score"] = self.missing_score
         
-        # 2. 搜索指数(10分) - TODO: 需要从百度指数等获取
-        if "search_index_change" in consensus_data:
+        # 2. 搜索指数(10分)
+        if "search_index_change" in consensus_data and consensus_data["search_index_change"] is not None:
             change_pct = consensus_data["search_index_change"]
             if change_pct > 50:
                 details["search_score"] = 10.0
@@ -355,8 +409,20 @@ class ConsensusScorer:
                 details["search_score"] = change_pct / 5
             score += details["search_score"]
         else:
-            missing_fields.append("search_index_change")
-            details["search_score"] = self.missing_score
+            # 尝试使用成交量变化作为代理指标
+            if "volume_change_pct" in consensus_data and consensus_data["volume_change_pct"] is not None:
+                volume_change = consensus_data["volume_change_pct"]
+                # 成交量变化可以部分反映市场关注度
+                if volume_change > 100:
+                    details["search_score"] = 8.0
+                elif volume_change < -50:
+                    details["search_score"] = -8.0
+                else:
+                    details["search_score"] = volume_change / 10
+                score += details["search_score"]
+            else:
+                missing_fields.append("search_index_change")
+                details["search_score"] = self.missing_score
         
         # 归一化到0-20分
         score = max(0, min(20, (score + 20) / 2))

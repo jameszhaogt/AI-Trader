@@ -122,9 +122,118 @@ class BacktestAgent(BaseAgent):
     
     def _create_local_tools(self) -> List[Any]:
         """创建本地工具（模拟MCP工具）"""
-        # TODO: 实现本地工具函数，模拟get_price、trade等MCP工具
-        # 这里先返回空列表，后续可以扩展
-        return []
+        from langchain.tools import Tool
+        
+        tools = []
+        
+        # 1. get_price 工具
+        def get_price_wrapper(input_str: str) -> str:
+            """获取股票价格数据"""
+            try:
+                import json
+                # 解析输入参数
+                params = json.loads(input_str) if isinstance(input_str, str) else input_str
+                symbol = params.get('symbol')
+                date = params.get('date', self.current_backtest_date)
+                
+                price_data = self.get_price_local(symbol, date)
+                if price_data:
+                    return json.dumps(price_data, ensure_ascii=False)
+                else:
+                    return json.dumps({"error": "无法获取价格数据"})
+            except Exception as e:
+                return json.dumps({"error": str(e)})
+        
+        tools.append(Tool(
+            name="get_price",
+            func=get_price_wrapper,
+            description="获取股票价格数据。输入: {\"symbol\": \"股票代码\", \"date\": \"日期\"}"
+        ))
+        
+        # 2. get_consensus 工具
+        def get_consensus_wrapper(input_str: str) -> str:
+            """获取共识数据"""
+            try:
+                import json
+                params = json.loads(input_str) if isinstance(input_str, str) else input_str
+                symbol = params.get('symbol')
+                date = params.get('date', self.current_backtest_date)
+                
+                consensus_data = self.get_consensus_local(symbol, date)
+                if consensus_data:
+                    return json.dumps(consensus_data, ensure_ascii=False)
+                else:
+                    return json.dumps({"info": "暂无共识数据"})
+            except Exception as e:
+                return json.dumps({"error": str(e)})
+        
+        tools.append(Tool(
+            name="get_consensus",
+            func=get_consensus_wrapper,
+            description="获取股票共识数据。输入: {\"symbol\": \"股票代码\", \"date\": \"日期\"}"
+        ))
+        
+        # 3. trade 工具 (回测版本)
+        def trade_wrapper(input_str: str) -> str:
+            """执行交易操作"""
+            try:
+                import json
+                params = json.loads(input_str) if isinstance(input_str, str) else input_str
+                
+                # 提取交易参数
+                symbol = params.get('symbol')
+                action = params.get('action')  # 'buy' or 'sell'
+                quantity = params.get('quantity', 100)
+                price = params.get('price')
+                
+                # 这里只是记录交易意图，实际执行由BacktestEngine处理
+                trade_record = {
+                    "symbol": symbol,
+                    "action": action,
+                    "quantity": quantity,
+                    "price": price,
+                    "date": self.current_backtest_date,
+                    "status": "pending"
+                }
+                
+                return json.dumps({
+                    "success": True,
+                    "message": f"{action} {quantity}股 {symbol} @ {price}",
+                    "trade": trade_record
+                }, ensure_ascii=False)
+                
+            except Exception as e:
+                return json.dumps({"error": str(e)}, ensure_ascii=False)
+        
+        tools.append(Tool(
+            name="trade",
+            func=trade_wrapper,
+            description="执行交易。输入: {\"symbol\": \"股票代码\", \"action\": \"buy/sell\", \"quantity\": 数量, \"price\": 价格}"
+        ))
+        
+        # 4. search 工具 (模拟版本)
+        def search_wrapper(input_str: str) -> str:
+            """搜索相关信息"""
+            try:
+                import json
+                params = json.loads(input_str) if isinstance(input_str, str) else input_str
+                query = params.get('query', '')
+                
+                # 回测环境下返回模拟结果
+                return json.dumps({
+                    "results": [],
+                    "message": f"回测模式下搜索功能不可用: {query}"
+                }, ensure_ascii=False)
+            except Exception as e:
+                return json.dumps({"error": str(e)}, ensure_ascii=False)
+        
+        tools.append(Tool(
+            name="search",
+            func=search_wrapper,
+            description="搜索相关信息。输入: {\"query\": \"搜索关键词\"}"
+        ))
+        
+        return tools
     
     def get_price_local(self, symbol: str, date: str) -> Optional[Dict[str, Any]]:
         """本地获取价格数据（替代MCP get_price）
