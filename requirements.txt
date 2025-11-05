@@ -4,7 +4,6 @@ langchain-mcp-adapters>=0.1.0
 fastmcp==2.12.5
 
 # A股数据源
-tushare>=1.2.89
 akshare>=1.11.0
 
 # 数据处理与分析

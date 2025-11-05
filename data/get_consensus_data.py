@@ -24,16 +24,7 @@ import json
 import os
 import logging
 
-# TODO: 安装依赖包
-# pip install tushare akshare pandas
-
-try:
-    import tushare as ts
-    TUSHARE_AVAILABLE = True
-except ImportError:
-    TUSHARE_AVAILABLE = False
-    logging.warning("Tushare未安装,请运行: pip install tushare")
-
+# 依赖包导入
 try:
     import akshare as ak
     AKSHARE_AVAILABLE = True
@@ -57,21 +48,13 @@ class ConsensusDataFetcher:
         初始化数据获取器
         
         Args:
-            tushare_token: Tushare Pro API Token(可选,从.env读取)
+            tushare_token: 废弃参数(保持兼容性)
             data_dir: 数据存储目录
         """
         self.data_dir = data_dir
-        self.tushare_token = tushare_token or os.getenv("TUSHARE_TOKEN")
         
-        # 初始化Tushare Pro
-        if TUSHARE_AVAILABLE and self.tushare_token:
-            ts.set_token(self.tushare_token)
-            self.pro = ts.pro_api()
-            self.use_tushare = True
-        else:
-            self.pro = None
-            self.use_tushare = False
-            logging.warning("Tushare未配置,将使用AkShare作为备用数据源")
+        if not AKSHARE_AVAILABLE:
+            logging.warning("AkShare未配置,数据获取将不可用")
     
     def fetch_northbound_flow(self, symbol: str, date: str) -> Optional[Dict[str, Any]]:
         """
@@ -88,13 +71,11 @@ class ConsensusDataFetcher:
                 "buy_amount": float,  # 买入金额(万元),缺失时为null
                 "sell_amount": float,  # 卖出金额(万元),缺失时为null
                 "net_amount": float,  # 净额(万元),缺失时为null
-                "data_source": "tushare" | "akshare"
+                "data_source": "akshare"
             } 或 None(数据完全不可用)
         """
         try:
-            if self.use_tushare:
-                return self._fetch_northbound_tushare(symbol, date)
-            elif AKSHARE_AVAILABLE:
+            if AKSHARE_AVAILABLE:
                 return self._fetch_northbound_akshare(symbol, date)
             else:
                 logging.error("无可用数据源获取北向资金数据")
@@ -110,55 +91,6 @@ class ConsensusDataFetcher:
                 "net_amount": None,
                 "data_source": "error",
                 "error": str(e)
-            }
-    
-    def _fetch_northbound_tushare(self, symbol: str, date: str) -> Optional[Dict[str, Any]]:
-        """通过Tushare获取北向资金数据"""
-        try:
-            ts_code = self._convert_to_ts_code(symbol)
-            trade_date = date.replace("-", "")
-            
-            # 调用Tushare API获取北向资金持股数据
-            df = self.pro.hk_hold(ts_code=ts_code, trade_date=trade_date)
-            
-            if df is None or df.empty:
-                return {
-                    "date": date,
-                    "symbol": symbol,
-                    "buy_amount": None,
-                    "sell_amount": None,
-                    "net_amount": None,
-                    "data_source": "tushare"
-                }
-            
-            # 提取数据（单位转换为万元）
-            row = df.iloc[0]
-            
-            # 计算净流入 = 持股市值变化
-            net_amount = None
-            if 'vol' in row and pd.notna(row['vol']):
-                # vol 为持股数量变化（股）
-                # 需要配合价格计算市值
-                net_amount = float(row['vol']) / 10000  # 转换为万元
-            
-            return {
-                "date": date,
-                "symbol": symbol,
-                "buy_amount": None,  # Tushare此API不提供买入卖出明细
-                "sell_amount": None,
-                "net_amount": net_amount,
-                "data_source": "tushare"
-            }
-            
-        except Exception as e:
-            logging.warning(f"Tushare获取北向资金失败: {e}")
-            return {
-                "date": date,
-                "symbol": symbol,
-                "buy_amount": None,
-                "sell_amount": None,
-                "net_amount": None,
-                "data_source": "tushare"
             }
     
     def _fetch_northbound_akshare(self, symbol: str, date: str) -> Optional[Dict[str, Any]]:
@@ -247,9 +179,7 @@ class ConsensusDataFetcher:
             }
         """
         try:
-            if self.use_tushare:
-                return self._fetch_margin_tushare(symbol, date)
-            elif AKSHARE_AVAILABLE:
+            if AKSHARE_AVAILABLE:
                 return self._fetch_margin_akshare(symbol, date)
             else:
                 logging.error("无可用数据源获取融资融券数据")
@@ -264,52 +194,6 @@ class ConsensusDataFetcher:
                 "margin_buy_amount": None,
                 "data_source": "error",
                 "error": str(e)
-            }
-    
-    def _fetch_margin_tushare(self, symbol: str, date: str) -> Optional[Dict[str, Any]]:
-        """通过Tushare获取融资融券数据"""
-        try:
-            ts_code = self._convert_to_ts_code(symbol)
-            trade_date = date.replace("-", "")
-            
-            # 调用Tushare API
-            df = self.pro.margin_detail(ts_code=ts_code, trade_date=trade_date)
-            
-            if df is None or df.empty:
-                return {
-                    "date": date,
-                    "symbol": symbol,
-                    "margin_balance": None,
-                    "short_balance": None,
-                    "margin_buy_amount": None,
-                    "data_source": "tushare"
-                }
-            
-            row = df.iloc[0]
-            
-            # 提取数据（单位转换为万元）
-            margin_balance = float(row['rzye']) / 10000 if pd.notna(row.get('rzye')) else None  # 融资余额
-            short_balance = float(row['rqye']) / 10000 if pd.notna(row.get('rqye')) else None   # 融券余额
-            margin_buy_amount = float(row['rzmre']) / 10000 if pd.notna(row.get('rzmre')) else None  # 融资买入额
-            
-            return {
-                "date": date,
-                "symbol": symbol,
-                "margin_balance": margin_balance,
-                "short_balance": short_balance,
-                "margin_buy_amount": margin_buy_amount,
-                "data_source": "tushare"
-            }
-            
-        except Exception as e:
-            logging.warning(f"Tushare获取融资融券数据失败: {e}")
-            return {
-                "date": date,
-                "symbol": symbol,
-                "margin_balance": None,
-                "short_balance": None,
-                "margin_buy_amount": None,
-                "data_source": "tushare"
             }
     
     def _fetch_margin_akshare(self, symbol: str, date: str) -> Optional[Dict[str, Any]]:
@@ -391,9 +275,7 @@ class ConsensusDataFetcher:
             }
         """
         try:
-            if self.use_tushare:
-                return self._fetch_ratings_tushare(symbol, date)
-            elif AKSHARE_AVAILABLE:
+            if AKSHARE_AVAILABLE:
                 return self._fetch_ratings_akshare(symbol, date)
             else:
                 logging.error("无可用数据源获取评级数据")
@@ -409,95 +291,6 @@ class ConsensusDataFetcher:
                 "institution_count": None,
                 "data_source": "error",
                 "error": str(e)
-            }
-    
-    def _fetch_ratings_tushare(self, symbol: str, date: str) -> Optional[Dict[str, Any]]:
-        """通过Tushare获取评级数据"""
-        try:
-            ts_code = self._convert_to_ts_code(symbol)
-            
-            # 获取指定日期前30天的评级数据
-            from datetime import datetime, timedelta
-            end_date_obj = datetime.strptime(date, '%Y-%m-%d')
-            start_date_obj = end_date_obj - timedelta(days=30)
-            
-            start_date_str = start_date_obj.strftime('%Y%m%d')
-            end_date_str = end_date_obj.strftime('%Y%m%d')
-            
-            df = self.pro.stk_rating(ts_code=ts_code, start_date=start_date_str, end_date=end_date_str)
-            
-            if df is None or df.empty:
-                return {
-                    "date": date,
-                    "symbol": symbol,
-                    "rating": None,
-                    "target_price": None,
-                    "rating_change": None,
-                    "institution_count": None,
-                    "data_source": "tushare"
-                }
-            
-            # 按日期排序，获取最新评级
-            df = df.sort_values('rating_date', ascending=False)
-            latest_rating = df.iloc[0]
-            
-            # 评级标准化
-            rating_map = {
-                '买入': '买入', '强烈推荐': '买入', '推荐': '买入',
-                '增持': '增持', '优于大市': '增持',
-                '中性': '中性', '持有': '中性',
-                '减持': '减持', '弱于大市': '减持',
-                '卖出': '卖出'
-            }
-            
-            raw_rating = latest_rating.get('rating', '')
-            rating = rating_map.get(raw_rating, raw_rating)
-            
-            # 目标价
-            target_price = float(latest_rating['target_price']) if pd.notna(latest_rating.get('target_price')) else None
-            
-            # 评级变化 - 对比前次评级
-            rating_change = None
-            if len(df) > 1:
-                prev_rating = df.iloc[1].get('rating', '')
-                prev_rating = rating_map.get(prev_rating, prev_rating)
-                
-                rating_score = {'卖出': 1, '减持': 2, '中性': 3, '增持': 4, '买入': 5}
-                current_score = rating_score.get(rating, 3)
-                prev_score = rating_score.get(prev_rating, 3)
-                
-                if current_score > prev_score:
-                    rating_change = '上调'
-                elif current_score < prev_score:
-                    rating_change = '下调'
-                else:
-                    rating_change = '维持'
-            else:
-                rating_change = '首次'
-            
-            # 统计机构数量
-            institution_count = len(df)
-            
-            return {
-                "date": date,
-                "symbol": symbol,
-                "rating": rating,
-                "target_price": target_price,
-                "rating_change": rating_change,
-                "institution_count": institution_count,
-                "data_source": "tushare"
-            }
-            
-        except Exception as e:
-            logging.warning(f"Tushare获取评级数据失败: {e}")
-            return {
-                "date": date,
-                "symbol": symbol,
-                "rating": None,
-                "target_price": None,
-                "rating_change": None,
-                "institution_count": None,
-                "data_source": "tushare"
             }
     
     def _fetch_ratings_akshare(self, symbol: str, date: str) -> Optional[Dict[str, Any]]:
@@ -608,9 +401,7 @@ class ConsensusDataFetcher:
             }
         """
         try:
-            if self.use_tushare:
-                return self._fetch_industry_tushare(industry, date)
-            elif AKSHARE_AVAILABLE:
+            if AKSHARE_AVAILABLE:
                 return self._fetch_industry_akshare(industry, date)
             else:
                 logging.error("无可用数据源获取行业热度数据")
@@ -836,12 +627,12 @@ def fetch_consensus_for_stock(symbol: str, date: str,
     Args:
         symbol: 股票代码
         date: 日期 "YYYY-MM-DD"
-        tushare_token: Tushare token(可选)
+        tushare_token: 废弃参数(保持兼容性)
         
     Returns:
         dict: 包含4个维度的共识数据
     """
-    fetcher = ConsensusDataFetcher(tushare_token)
+    fetcher = ConsensusDataFetcher()
     return fetcher.fetch_all_consensus_data(symbol, date)
 
 

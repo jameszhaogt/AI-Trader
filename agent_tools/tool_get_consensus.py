@@ -46,7 +46,7 @@ def get_northbound_flow(symbol: str, date: str, tushare_token: Optional[str] = N
     Args:
         symbol: 股票代码,如"600000"(不含后缀)
         date: 查询日期,格式"YYYY-MM-DD",如"2024-01-15"
-        tushare_token: Tushare Pro API Token(可选,从环境变量读取)
+        tushare_token: 废弃参数(保持兼容性)
         
     Returns:
         dict: {
@@ -55,7 +55,7 @@ def get_northbound_flow(symbol: str, date: str, tushare_token: Optional[str] = N
             "buy_amount": float,      // 北向资金买入金额(万元),null表示数据缺失
             "sell_amount": float,     // 北向资金卖出金额(万元),null表示数据缺失
             "net_amount": float,      // 北向资金净流入(万元),正值为流入,负值为流出,null表示数据缺失
-            "data_source": str,       // 数据源("tushare"或"akshare"或"error")
+            "data_source": str,       // 数据源("akshare"或"error")
             "error": str              // 错误信息(如果有)
         }
         
@@ -81,7 +81,7 @@ def get_northbound_flow(symbol: str, date: str, tushare_token: Optional[str] = N
             "error": "ConsensusDataFetcher not available"
         }
     
-    fetcher = ConsensusDataFetcher(tushare_token)
+    fetcher = ConsensusDataFetcher()
     return fetcher.fetch_northbound_flow(symbol, date)
 
 
@@ -128,7 +128,7 @@ def get_margin_trading(symbol: str, date: str, tushare_token: Optional[str] = No
             "error": "ConsensusDataFetcher not available"
         }
     
-    fetcher = ConsensusDataFetcher(tushare_token)
+    fetcher = ConsensusDataFetcher()
     return fetcher.fetch_margin_trading(symbol, date)
 
 
@@ -176,7 +176,7 @@ def get_analyst_ratings(symbol: str, date: str, tushare_token: Optional[str] = N
             "error": "ConsensusDataFetcher not available"
         }
     
-    fetcher = ConsensusDataFetcher(tushare_token)
+    fetcher = ConsensusDataFetcher()
     return fetcher.fetch_analyst_ratings(symbol, date)
 
 
@@ -222,7 +222,7 @@ def get_industry_heat(industry: str, date: str, tushare_token: Optional[str] = N
             "error": "ConsensusDataFetcher not available"
         }
     
-    fetcher = ConsensusDataFetcher(tushare_token)
+    fetcher = ConsensusDataFetcher()
     return fetcher.fetch_industry_heat(industry, date)
 
 
@@ -277,7 +277,7 @@ def get_all_consensus(symbol: str, date: str, industry: Optional[str] = None,
             "error": "ConsensusDataFetcher not available"
         }
     
-    fetcher = ConsensusDataFetcher(tushare_token)
+    fetcher = ConsensusDataFetcher()
     return fetcher.fetch_all_consensus_data(symbol, date, industry)
 
 

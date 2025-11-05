@@ -27,6 +27,12 @@ except ImportError:
     pd = None
     logging.warning("Pandas未安装,请运行: pip install pandas")
 
+try:
+    import akshare as ak
+except ImportError:
+    ak = None
+    logging.warning("AkShare未安装,请运行: pip install akshare")
+
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -84,66 +90,63 @@ def fetch_stock_list(market: str = "HS300", update: bool = True) -> dict:
     参考: docs/ASTOCK_IMPLEMENTATION_ROADMAP.md §阶段1-任务1.1
     """
     try:
-        import tushare as ts
-        
-        # 获取Token
-        token = os.getenv("TUSHARE_TOKEN")
-        if not token:
-            raise ValueError("未配置TUSHARE_TOKEN环境变量,请在.env文件中配置")
-        
-        pro = ts.pro_api(token)
+        if not ak:
+            raise ImportError("AkShare未安装,请运行: pip install akshare")
         
         logger.info(f"获取{market}股票列表...")
         
         stocks = []
+        stock_codes = []
         
         # 根据market参数获取不同的股票列表
         if market == "HS300":
             # 获取沪深300成分股
-            df = pro.index_weight(index_code='000300.SH', start_date='', end_date='')
+            df = ak.index_stock_cons_csindex(symbol="000300")
             if df is not None and not df.empty:
-                # 获取最新日期的成分股
-                latest_date = df['trade_date'].max()
-                df = df[df['trade_date'] == latest_date]
-                stock_codes = df['con_code'].unique()
-            else:
-                stock_codes = []
+                stock_codes = df['成分券代码'].tolist()
+                # 转换为带后缀的格式
+                stock_codes = [code + ('.SH' if code.startswith('6') else '.SZ') for code in stock_codes]
         elif market == "KC50":
             # 获取科创50成分股
-            df = pro.index_weight(index_code='000688.SH', start_date='', end_date='')
+            df = ak.index_stock_cons_csindex(symbol="000688")
             if df is not None and not df.empty:
-                latest_date = df['trade_date'].max()
-                df = df[df['trade_date'] == latest_date]
-                stock_codes = df['con_code'].unique()
-            else:
-                stock_codes = []
+                stock_codes = df['成分券代码'].tolist()
+                stock_codes = [code + '.SH' for code in stock_codes]  # 科创板都是SH
         elif market == "ALL":
             # 获取所有A股
-            df = pro.stock_basic(exchange='', list_status='L', fields='ts_code,symbol,name,area,industry,list_date')
-            stock_codes = df['ts_code'].tolist() if df is not None and not df.empty else []
+            df = ak.stock_info_a_code_name()
+            if df is not None and not df.empty:
+                stock_codes = []
+                for _, row in df.iterrows():
+                    code = row['code']
+                    suffix = '.SH' if code.startswith('6') or code.startswith('688') else '.SZ'
+                    stock_codes.append(code + suffix)
         else:
             raise ValueError(f"不支持的市场类型: {market}, 请使用 HS300, KC50 或 ALL")
         
         logger.info(f"获取到 {len(stock_codes)} 只股票代码")
         
+        # 获取所有股票的基本信息
+        stock_info_df = ak.stock_info_a_code_name()
+        
         # 获取股票详细信息
         for ts_code in stock_codes:
             try:
-                # 获取股票基本信息
-                info_df = pro.stock_basic(ts_code=ts_code, fields='ts_code,symbol,name,area,industry,market,list_date')
+                symbol_code = ts_code.split('.')[0]
                 
-                if info_df is None or info_df.empty:
+                # 从基本信息中查找
+                stock_row = stock_info_df[stock_info_df['code'] == symbol_code]
+                
+                if stock_row.empty:
                     logger.warning(f"无法获取 {ts_code} 的基本信息")
                     continue
                 
-                row = info_df.iloc[0]
-                stock_name = row['name']
+                stock_name = stock_row.iloc[0]['name']
                 
                 # 识别ST股票
                 is_st = identify_st_stock(stock_name)
                 
                 # 判断市场类型
-                symbol_code = ts_code.split('.')[0]
                 if symbol_code.startswith('688'):
                     market_type = '科创板'
                 elif symbol_code.startswith('300'):
@@ -155,12 +158,24 @@ def fetch_stock_list(market: str = "HS300", update: bool = True) -> dict:
                 else:
                     market_type = '其他'
                 
+                # 获取行业信息(可选,可能需要额外的API调用)
+                industry = ''
+                try:
+                    # AkShare的行业信息需要单独获取
+                    industry_df = ak.stock_individual_info_em(symbol=symbol_code)
+                    if industry_df is not None and not industry_df.empty:
+                        industry_row = industry_df[industry_df['item'] == '行业']
+                        if not industry_row.empty:
+                            industry = industry_row.iloc[0]['value']
+                except:
+                    pass
+                
                 stock_info = {
                     "symbol": ts_code,
                     "name": stock_name,
-                    "industry": row.get('industry', ''),
+                    "industry": industry,
                     "market": market_type,
-                    "list_date": row.get('list_date', ''),
+                    "list_date": '',  # AkShare基础接口不提供上市日期
                     "is_st": is_st,
                     "status": "normal"
                 }
@@ -188,9 +203,6 @@ def fetch_stock_list(market: str = "HS300", update: bool = True) -> dict:
         logger.info(f"✓ 股票列表已保存到 {output_path}")
         return result
         
-    except ImportError:
-        logger.error("未安装tushare,请运行: pip install tushare")
-        raise
     except Exception as e:
         logger.error(f"获取股票列表失败: {e}")
         raise
@@ -232,52 +244,70 @@ def fetch_daily_data(
     参考: docs/DESIGN_DEFECTS_FIX.md §4 (停牌日处理)
     """
     try:
-        import tushare as ts
-        
-        token = os.getenv("TUSHARE_TOKEN")
-        pro = ts.pro_api(token)
+        if not ak:
+            raise ImportError("AkShare未安装,请运行: pip install akshare")
         
         logger.info(f"下载 {symbol} 数据: {start_date} 至 {end_date}")
         
         result = []
         
         # 1. 获取日线数据
-        ts_code = symbol if '.' in symbol else symbol + '.SH'  # 确保有后缀
+        symbol_code = symbol.split('.')[0] if '.' in symbol else symbol
         
-        # 使用pro_bar获取复权数据
-        df = ts.pro_bar(ts_code=ts_code, adj=adj, start_date=start_date.replace('-', ''), 
-                        end_date=end_date.replace('-', ''), 
-                        factors=['tor', 'vr'])
+        # 使用akshare获取复权数据
+        # 对于前复权，akshare使用"qfq"，后复权使用"hfq"
+        if adj == "qfq":
+            df = ak.stock_zh_a_hist(symbol=symbol_code, period="daily", 
+                                   start_date=start_date.replace('-', ''), 
+                                   end_date=end_date.replace('-', ''), 
+                                   adjust="qfq")
+        elif adj == "hfq":
+            df = ak.stock_zh_a_hist(symbol=symbol_code, period="daily", 
+                                   start_date=start_date.replace('-', ''), 
+                                   end_date=end_date.replace('-', ''), 
+                                   adjust="hfq")
+        else:
+            df = ak.stock_zh_a_hist(symbol=symbol_code, period="daily", 
+                                   start_date=start_date.replace('-', ''), 
+                                   end_date=end_date.replace('-', ''), 
+                                   adjust="")
         
         if df is None or df.empty:
             logger.warning(f"{symbol} 没有数据")
             return result
         
+        # AkShare返回的列名不同，需要映射
+        # AkShare: '日期', '开盘', '收盘', '最高', '最低', '成交量', '成交额'
+        df = df.rename(columns={
+            '日期': 'trade_date',
+            '开盘': 'open',
+            '收盘': 'close',
+            '最高': 'high',
+            '最低': 'low',
+            '成交量': 'vol',
+            '成交额': 'amount'
+        })
+        
         # 按日期升序排列
+        df['trade_date'] = pd.to_datetime(df['trade_date']).dt.strftime('%Y%m%d')
         df = df.sort_values('trade_date')
         
-        # 2. 获取停牌信息
-        suspend_df = None
-        try:
-            suspend_df = pro.suspend_d(ts_code=ts_code, 
-                                      start_date=start_date.replace('-', ''), 
-                                      end_date=end_date.replace('-', ''))
-        except Exception as e:
-            logger.debug(f"获取停牌信息失败: {e}")
-        
-        # 创建停牌日期集合
+        # 2. 获取停牌信息(通过成交量为0判断)
         suspended_dates = set()
-        if suspend_df is not None and not suspend_df.empty:
-            suspended_dates = set(suspend_df['suspend_date'].astype(str))
+        # AkShare不直接提供停牌信息，通过成交量为0判断
+        if pd and 'vol' in df.columns:
+            suspended_dates = set(df[df['vol'] == 0]['trade_date'].astype(str))
         
         # 3. 获取股票名称用于ST判断
         stock_name = ""
         is_st = False
         try:
-            basic_df = pro.stock_basic(ts_code=ts_code, fields='name')
-            if basic_df is not None and not basic_df.empty:
-                stock_name = basic_df.iloc[0]['name']
-                is_st = identify_st_stock(stock_name)
+            stock_info = ak.stock_info_a_code_name()
+            if pd:
+                stock_row = stock_info[stock_info['code'] == symbol_code]
+                if not stock_row.empty:
+                    stock_name = stock_row.iloc[0]['name']
+                    is_st = identify_st_stock(stock_name)
         except:
             pass
         
@@ -292,13 +322,14 @@ def fetch_daily_data(
             close_price = round(float(row['close']), 2)
             high_price = round(float(row['high']), 2)
             low_price = round(float(row['low']), 2)
-            volume = int(row['vol']) if pd.notna(row['vol']) else 0
-            amount = round(float(row['amount']), 2) if pd.notna(row['amount']) else 0.0
+            volume = int(row['vol']) if pd and pd.notna(row['vol']) else 0
+            amount = round(float(row['amount']), 2) if pd and pd.notna(row['amount']) else 0.0
             
             # 获取前收盘价
-            current_prev_close = round(float(row['pre_close']), 2) if pd.notna(row['pre_close']) else prev_close
-            if current_prev_close is None:
-                current_prev_close = close_price
+            current_prev_close = prev_close if prev_close is not None else close_price
+            # AkShare可能有昨收列，如果有就使用
+            if '昨收' in row:
+                current_prev_close = round(float(row['昨收']), 2) if pd and pd.notna(row['昨收']) else current_prev_close
             
             # 计算涨跌幅
             change_pct = round((close_price / current_prev_close - 1) * 100, 2) if current_prev_close > 0 else 0.0
@@ -307,13 +338,13 @@ def fetch_daily_data(
             status = "normal"
             suspend_reason = None
             
-            # 检查是否停牌
-            if trade_date in suspended_dates:
+            # 检查是否停牌(成交量为0)
+            if trade_date in suspended_dates or volume == 0:
                 status = "suspended"
                 suspend_reason = "股票停牌"
             else:
                 # 判断涨跌停
-                limit_ratio = 0.05 if is_st else 0.20 if ts_code.startswith(('688', '300')) else 0.10
+                limit_ratio = 0.05 if is_st else 0.20 if symbol_code.startswith(('688', '300')) else 0.10
                 limit_up = round(current_prev_close * (1 + limit_ratio), 2)
                 limit_down = round(current_prev_close * (1 - limit_ratio), 2)
                 
@@ -346,38 +377,8 @@ def fetch_daily_data(
             prev_close = close_price
         
         # 5. 处理停牌日（填充缺失数据）
-        # 获取交易日历
-        try:
-            cal_df = pro.trade_cal(exchange='SSE', start_date=start_date.replace('-', ''), 
-                                  end_date=end_date.replace('-', ''), is_open='1')
-            if cal_df is not None and not cal_df.empty:
-                all_trade_dates = set(cal_df['cal_date'].astype(str))
-                actual_dates = set(str(r['trade_date']) for idx, r in df.iterrows())
-                missing_dates = all_trade_dates - actual_dates
-                
-                # 为停牌日填充数据
-                for missing_date in sorted(missing_dates):
-                    if prev_close is not None:
-                        date_formatted = f"{missing_date[:4]}-{missing_date[4:6]}-{missing_date[6:8]}"
-                        suspended_record = {
-                            "symbol": symbol,
-                            "date": date_formatted,
-                            "open": prev_close,
-                            "close": prev_close,
-                            "high": prev_close,
-                            "low": prev_close,
-                            "volume": 0,
-                            "amount": 0.0,
-                            "prev_close": prev_close,
-                            "change_pct": 0.0,
-                            "status": "suspended",
-                            "is_limit_up": False,
-                            "is_limit_down": False,
-                            "suspend_reason": "股票停牌"
-                        }
-                        result.append(suspended_record)
-        except Exception as e:
-            logger.debug(f"处理停牌日时出错: {e}")
+        # AkShare不直接提供交易日历，这里简化处理
+        # 如果需要更精确的交易日处理，可以使用 ak.tool_trade_date_hist_sina()
         
         # 按日期排序
         result.sort(key=lambda x: x['date'])
@@ -544,4 +545,4 @@ if __name__ == "__main__":
     print(f"中国平安: {identify_st_stock('中国平安')}")  # False
     
     # TODO: 取消注释以执行实际下载
-    # download_all_stocks(stock_pool="HS300", start_date="2024-01-01", end_date="2024-01-31")
+    download_all_stocks(stock_pool="HS300", start_date="2024-01-01", end_date="2024-01-31")

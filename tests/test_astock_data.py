@@ -24,17 +24,17 @@ class TestAStockDataFetcher(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """测试类初始化"""
-        # 检查是否有Tushare token
-        tushare_token = os.getenv("TUSHARE_TOKEN")
-        if not tushare_token:
-            raise unittest.SkipTest("未设置TUSHARE_TOKEN环境变量，跳过数据获取测试")
-        
-        cls.fetcher = AStockDataFetcher(token=tushare_token)
+        # 检查是否有akshare
+        try:
+            import akshare as ak
+            cls.ak = ak
+        except ImportError:
+            raise unittest.SkipTest("未安装akshare，跳过数据获取测试")
     
     def test_01_initialization(self):
         """测试初始化"""
-        self.assertIsNotNone(self.fetcher.pro)
-        print("✅ 数据获取器初始化成功")
+        self.assertIsNotNone(self.ak)
+        print("✅ akshare初始化成功")
     
     def test_02_fetch_stock_list(self):
         """测试股票列表获取"""

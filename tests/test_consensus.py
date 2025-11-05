@@ -23,13 +23,14 @@ class TestConsensusData(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """测试类初始化"""
-        # 检查Tushare token
-        tushare_token = os.getenv("TUSHARE_TOKEN")
-        if not tushare_token:
-            raise unittest.SkipTest("未设置TUSHARE_TOKEN环境变量，跳过共识数据测试")
+        # 检查akshare
+        try:
+            import akshare as ak
+        except ImportError:
+            raise unittest.SkipTest("未安装akshare，跳过共识数据测试")
         
-        cls.fetcher = ConsensusDataFetcher(token=tushare_token)
-        cls.test_date = datetime.now().strftime('%Y%m%d')
+        cls.fetcher = ConsensusDataFetcher()
+        cls.test_date = datetime.now().strftime('%Y-%m-%d')
     
     def test_01_fetch_northbound_flow(self):
         """测试北向资金数据获取"""
